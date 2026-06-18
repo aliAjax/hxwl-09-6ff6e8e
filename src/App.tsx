@@ -3,6 +3,8 @@ import "./styles.css";
 
 type PlanStatus = "未开始" | "进行中" | "已完成";
 type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
+type TicketStatus = "待处理" | "处理中" | "已关闭";
+type TicketAnomalyType = "粒子异常" | "压差异常" | "温湿度偏移";
 
 interface InspectionPlan {
   id: number;
@@ -36,6 +38,18 @@ interface SampleRecord {
   pressure: number;
   temperature: number;
   humidity: number;
+}
+
+interface AnomalyTicket {
+  id: number;
+  roomId: string;
+  area: CleanArea;
+  anomalyType: TicketAnomalyType;
+  assignee: string;
+  status: TicketStatus;
+  remark: string;
+  createdAt: string;
+  sourceRecordId?: number;
 }
 
 const defaultThresholds: AreaThreshold[] = [
@@ -88,6 +102,28 @@ const initialPlans: InspectionPlan[] = [
   { id: 4, date: "2026-06-18", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始" },
   { id: 5, date: "2026-06-18", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成" },
 ];
+
+const initialTickets: AnomalyTicket[] = [
+  { id: 1, roomId: "CR-1201", area: "ISO 5", anomalyType: "粒子异常", assignee: "张伟", status: "待处理", remark: "0.5μm和5.0μm粒子均超限", createdAt: "2026-06-18 09:30", sourceRecordId: 1 },
+  { id: 2, roomId: "CR-3305", area: "ISO 7", anomalyType: "压差异常", assignee: "李娜", status: "处理中", remark: "压差低于下限，正在排查阀门", createdAt: "2026-06-18 10:15", sourceRecordId: 4 },
+  { id: 3, roomId: "CR-3305", area: "ISO 7", anomalyType: "温湿度偏移", assignee: "王强", status: "已关闭", remark: "空调系统已修复，温湿度恢复正常", createdAt: "2026-06-17 14:20", sourceRecordId: 4 },
+];
+
+const ticketStatusFilters: ("全部" | TicketStatus)[] = ["全部", "待处理", "处理中", "已关闭"];
+
+const ticketAssignees = ["张伟", "李娜", "王强", "赵敏", "陈磊"];
+
+const ticketStatusTagClass: Record<TicketStatus, string> = {
+  "待处理": "ticket-tag-pending",
+  "处理中": "ticket-tag-active",
+  "已关闭": "ticket-tag-closed",
+};
+
+const ticketAnomalyTypeClass: Record<TicketAnomalyType, string> = {
+  "粒子异常": "ticket-type-particle",
+  "压差异常": "ticket-type-pressure",
+  "温湿度偏移": "ticket-type-temphum",
+};
 
 const statusFilters: ("全部" | PlanStatus)[] = ["全部", "未开始", "进行中", "已完成"];
 
@@ -401,7 +437,39 @@ function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
   );
 }
 
-function PreviewTable({ thresholds }: { thresholds: AreaThreshold[] }) {
+interface PreviewTableProps {
+  thresholds: AreaThreshold[];
+  onCreateTicket: (record: SampleRecord, anomalyType: TicketAnomalyType) => void;
+  hasTicketForRecord: (recordId: number, anomalyType: TicketAnomalyType) => boolean;
+}
+
+function PreviewTable({ thresholds, onCreateTicket, hasTicketForRecord }: PreviewTableProps) {
+  const getAnomalyTypes = (anomalies: Record<AnomalyType, boolean>): TicketAnomalyType[] => {
+    const types: TicketAnomalyType[] = [];
+    if (anomalies.particle) types.push("粒子异常");
+    if (anomalies.pressure) types.push("压差异常");
+    if (anomalies.temp || anomalies.humidity) types.push("温湿度偏移");
+    return types;
+  };
+
+  const getRemarkForType = (record: SampleRecord, anomalyType: TicketAnomalyType, th: AreaThreshold | undefined): string => {
+    if (!th) return "";
+    switch (anomalyType) {
+      case "粒子异常":
+        const p05 = record.particle05um > th.particle05um ? `0.5μm(${record.particle05um.toLocaleString()})` : "";
+        const p5 = record.particle5um > th.particle5um ? `5.0μm(${record.particle5um.toLocaleString()})` : "";
+        return `粒子计数超限：${[p05, p5].filter(Boolean).join("、")}`;
+      case "压差异常":
+        return `压差${record.pressure < th.pressure.min ? "低于下限" : "高于上限"}：${record.pressure}Pa（范围${th.pressure.min}-${th.pressure.max}Pa）`;
+      case "温湿度偏移":
+        const t = record.temperature < th.temperature.min ? "温度偏低" : record.temperature > th.temperature.max ? "温度偏高" : "";
+        const h = record.humidity < th.humidity.min ? "湿度偏低" : record.humidity > th.humidity.max ? "湿度偏高" : "";
+        return `温湿度偏移：${[t, h].filter(Boolean).join("、")}`;
+      default:
+        return "";
+    }
+  };
+
   return (
     <section className="preview-panel panel">
       <div className="section-heading">
@@ -428,12 +496,15 @@ function PreviewTable({ thresholds }: { thresholds: AreaThreshold[] }) {
               <th>温度(°C)</th>
               <th>湿度(%)</th>
               <th>判定</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             {sampleRecords.map((record) => {
               const anomalies = checkAnomalies(record, thresholds);
               const status = getRecordStatus(anomalies);
+              const anomalyTypes = getAnomalyTypes(anomalies);
+              const th = thresholds.find((t) => t.area === record.area);
               return (
                 <tr key={record.id}>
                   <td className="preview-room">{record.roomId}</td>
@@ -459,6 +530,36 @@ function PreviewTable({ thresholds }: { thresholds: AreaThreshold[] }) {
                   </td>
                   <td>
                     <span className={`record-status ${status.cls}`}>{status.label}</span>
+                  </td>
+                  <td>
+                    {anomalyTypes.length > 0 ? (
+                      <div className="ticket-create-actions">
+                        {anomalyTypes.map((type) => {
+                          const hasTicket = hasTicketForRecord(record.id, type);
+                          return (
+                            <button
+                              key={type}
+                              className={`ticket-create-btn ${hasTicket ? "disabled" : ""}`}
+                              disabled={hasTicket}
+                              onClick={() => {
+                                if (!hasTicket) {
+                                  const remark = getRemarkForType(record, type, th);
+                                  onCreateTicket(
+                                    { ...record },
+                                    type,
+                                  );
+                                }
+                              }}
+                              title={hasTicket ? "已有对应工单" : `创建${type}工单`}
+                            >
+                              {hasTicket ? "已创建" : `+ ${type}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="no-action-hint">—</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -579,8 +680,233 @@ function InspectionSchedule() {
   );
 }
 
+interface AnomalyTicketManagementProps {
+  tickets: AnomalyTicket[];
+  onAddTicket: (ticket: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => void;
+  onStatusChange: (ticketId: number, status: TicketStatus) => void;
+}
+
+function AnomalyTicketManagement({ tickets, onAddTicket, onStatusChange }: AnomalyTicketManagementProps) {
+  const [activeFilter, setActiveFilter] = useState<"全部" | TicketStatus>("全部");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    roomId: "",
+    area: planAreas[0] as CleanArea,
+    anomalyType: "粒子异常" as TicketAnomalyType,
+    assignee: ticketAssignees[0],
+    remark: "",
+  });
+
+  const filtered = activeFilter === "全部" ? tickets : tickets.filter((t) => t.status === activeFilter);
+
+  const counts = {
+    "待处理": tickets.filter((t) => t.status === "待处理").length,
+    "处理中": tickets.filter((t) => t.status === "处理中").length,
+    "已关闭": tickets.filter((t) => t.status === "已关闭").length,
+  };
+
+  const handleAdd = () => {
+    if (!form.roomId.trim()) return;
+    onAddTicket({
+      roomId: form.roomId.trim(),
+      area: form.area,
+      anomalyType: form.anomalyType,
+      assignee: form.assignee,
+      remark: form.remark.trim(),
+    });
+    setForm((prev) => ({ ...prev, roomId: "", remark: "" }));
+    setShowForm(false);
+  };
+
+  const getNextStatus = (current: TicketStatus): TicketStatus | null => {
+    if (current === "待处理") return "处理中";
+    if (current === "处理中") return "已关闭";
+    return null;
+  };
+
+  const getPrevStatus = (current: TicketStatus): TicketStatus | null => {
+    if (current === "处理中") return "待处理";
+    if (current === "已关闭") return "处理中";
+    return null;
+  };
+
+  return (
+    <section className="ticket-section panel">
+      <div className="section-heading">
+        <div>
+          <p>异常跟踪</p>
+          <h2>异常处理工单</h2>
+        </div>
+        <button className="primary-action" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "收起表单" : "新增工单"}
+        </button>
+      </div>
+
+      <div className="ticket-stats">
+        {(Object.entries(counts) as [TicketStatus, number][]).map(([label, count]) => (
+          <div key={label} className={`ticket-stat ${ticketStatusTagClass[label]}`}>
+            <strong>{count}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="chips muted" style={{ marginBottom: 18 }}>
+        {ticketStatusFilters.map((f) => (
+          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => setActiveFilter(f)}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {showForm && (
+        <div className="ticket-form">
+          <label>
+            <span>房间编号</span>
+            <input placeholder="例如 CR-1201" value={form.roomId} onChange={(e) => setForm((p) => ({ ...p, roomId: e.target.value }))} />
+          </label>
+          <label>
+            <span>洁净等级</span>
+            <select value={form.area} onChange={(e) => setForm((p) => ({ ...p, area: e.target.value as CleanArea }))}>
+              {planAreas.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>异常类型</span>
+            <select value={form.anomalyType} onChange={(e) => setForm((p) => ({ ...p, anomalyType: e.target.value as TicketAnomalyType }))}>
+              <option value="粒子异常">粒子异常</option>
+              <option value="压差异常">压差异常</option>
+              <option value="温湿度偏移">温湿度偏移</option>
+            </select>
+          </label>
+          <label>
+            <span>负责人</span>
+            <select value={form.assignee} onChange={(e) => setForm((p) => ({ ...p, assignee: e.target.value }))}>
+              {ticketAssignees.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ticket-form-remark">
+            <span>备注</span>
+            <input placeholder="异常描述或处理说明" value={form.remark} onChange={(e) => setForm((p) => ({ ...p, remark: e.target.value }))} />
+          </label>
+          <button className="primary-action" style={{ alignSelf: "end" }} onClick={handleAdd}>
+            确认创建
+          </button>
+        </div>
+      )}
+
+      <div className="ticket-list">
+        {filtered.map((ticket) => {
+          const nextStatus = getNextStatus(ticket.status);
+          const prevStatus = getPrevStatus(ticket.status);
+          return (
+            <article key={ticket.id} className="ticket-card">
+              <div className="ticket-card-header">
+                <div className="ticket-room-info">
+                  <span className="ticket-room-id">{ticket.roomId}</span>
+                  <span className="ticket-area">{ticket.area}</span>
+                </div>
+                <span className={`ticket-status-tag ${ticketStatusTagClass[ticket.status]}`}>{ticket.status}</span>
+              </div>
+              <div className="ticket-card-body">
+                <div className="ticket-anomaly-type">
+                  <span className={`ticket-type-badge ${ticketAnomalyTypeClass[ticket.anomalyType]}`}>{ticket.anomalyType}</span>
+                </div>
+                <div className="ticket-meta">
+                  <div className="ticket-meta-item">
+                    <span className="ticket-meta-label">负责人</span>
+                    <span className="ticket-meta-value">{ticket.assignee}</span>
+                  </div>
+                  <div className="ticket-meta-item">
+                    <span className="ticket-meta-label">创建时间</span>
+                    <span className="ticket-meta-value">{ticket.createdAt}</span>
+                  </div>
+                </div>
+                {ticket.remark && (
+                  <div className="ticket-remark">
+                    <span className="ticket-meta-label">备注</span>
+                    <p>{ticket.remark}</p>
+                  </div>
+                )}
+              </div>
+              <div className="ticket-actions">
+                {prevStatus && (
+                  <button className="ticket-action-btn secondary" onClick={() => onStatusChange(ticket.id, prevStatus)}>
+                    回退到{prevStatus}
+                  </button>
+                )}
+                {nextStatus && (
+                  <button className="ticket-action-btn primary" onClick={() => onStatusChange(ticket.id, nextStatus)}>
+                    标记为{nextStatus}
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+        {filtered.length === 0 && <p className="ticket-empty">暂无匹配的工单</p>}
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [thresholds, setThresholds] = useState<AreaThreshold[]>(defaultThresholds);
+  const [tickets, setTickets] = useState<AnomalyTicket[]>(initialTickets);
+
+  const handleAddTicket = (ticketData: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const newTicket: AnomalyTicket = {
+      id: Date.now(),
+      status: "待处理",
+      createdAt: dateStr,
+      ...ticketData,
+    };
+    setTickets((prev) => [...prev, newTicket]);
+  };
+
+  const handleTicketStatusChange = (ticketId: number, status: TicketStatus) => {
+    setTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
+    );
+  };
+
+  const handleCreateTicketFromRecord = (record: SampleRecord, anomalyType: TicketAnomalyType) => {
+    const th = thresholds.find((t) => t.area === record.area);
+    let remark = "";
+    switch (anomalyType) {
+      case "粒子异常":
+        const p05 = record.particle05um > (th?.particle05um ?? 0) ? `0.5μm(${record.particle05um.toLocaleString()})` : "";
+        const p5 = record.particle5um > (th?.particle5um ?? 0) ? `5.0μm(${record.particle5um.toLocaleString()})` : "";
+        remark = `粒子计数超限：${[p05, p5].filter(Boolean).join("、")}`;
+        break;
+      case "压差异常":
+        remark = `压差${record.pressure < (th?.pressure.min ?? 0) ? "低于下限" : "高于上限"}：${record.pressure}Pa`;
+        break;
+      case "温湿度偏移":
+        const t = record.temperature < (th?.temperature.min ?? 0) ? "温度偏低" : record.temperature > (th?.temperature.max ?? 0) ? "温度偏高" : "";
+        const h = record.humidity < (th?.humidity.min ?? 0) ? "湿度偏低" : record.humidity > (th?.humidity.max ?? 0) ? "湿度偏高" : "";
+        remark = `温湿度偏移：${[t, h].filter(Boolean).join("、")}`;
+        break;
+    }
+    handleAddTicket({
+      roomId: record.roomId,
+      area: record.area,
+      anomalyType,
+      assignee: ticketAssignees[Math.floor(Math.random() * ticketAssignees.length)],
+      remark,
+      sourceRecordId: record.id,
+    });
+  };
+
+  const hasTicketForRecord = (recordId: number, anomalyType: TicketAnomalyType): boolean => {
+    return tickets.some((t) => t.sourceRecordId === recordId && t.anomalyType === anomalyType);
+  };
 
   const metricValues = useMemo(() => {
     const results = sampleRecords.map((r) => checkAnomalies(r, thresholds));
@@ -627,7 +953,7 @@ function App() {
 
       <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />
 
-      <PreviewTable thresholds={thresholds} />
+      <PreviewTable thresholds={thresholds} onCreateTicket={handleCreateTicketFromRecord} hasTicketForRecord={hasTicketForRecord} />
 
       <section className="workspace">
         <aside className="panel narrow">
@@ -665,6 +991,12 @@ function App() {
       </section>
 
       <InspectionSchedule />
+
+      <AnomalyTicketManagement
+        tickets={tickets}
+        onAddTicket={handleAddTicket}
+        onStatusChange={handleTicketStatusChange}
+      />
 
       <section className="records panel">
         <div className="section-heading">
