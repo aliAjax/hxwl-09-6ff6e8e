@@ -5,6 +5,8 @@ type PlanStatus = "未开始" | "进行中" | "已完成";
 type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
 type TicketStatus = "待处理" | "处理中" | "已关闭";
 type TicketAnomalyType = "粒子异常" | "压差异常" | "温湿度偏移";
+type DeviceStatus = "运行中" | "待机" | "故障";
+type RecordStatus = "稳定" | "关注" | "异常";
 
 interface InspectionPlan {
   id: number;
@@ -38,6 +40,21 @@ interface SampleRecord {
   pressure: number;
   temperature: number;
   humidity: number;
+}
+
+interface InspectionRecord {
+  id: number;
+  roomId: string;
+  area: CleanArea;
+  particle05um: number;
+  particle5um: number;
+  pressure: number;
+  temperature: number;
+  humidity: number;
+  deviceStatus: DeviceStatus;
+  remark: string;
+  createdAt: string;
+  status: RecordStatus;
 }
 
 interface AnomalyTicket {
@@ -129,6 +146,7 @@ const statusFilters: ("全部" | PlanStatus)[] = ["全部", "未开始", "进行
 
 const planAreas: CleanArea[] = ["ISO 5", "ISO 6", "ISO 7", "黄光区"];
 const planRoles = ["巡检员", "厂务工程师", "班组长"];
+const deviceStatuses: DeviceStatus[] = ["运行中", "待机", "故障"];
 
 const statusTagClass: Record<PlanStatus, string> = {
   "未开始": "plan-tag-pending",
@@ -154,9 +172,9 @@ function checkAnomalies(record: SampleRecord, thresholds: AreaThreshold[]): Reco
   };
 }
 
-function getRecordStatus(anomalies: Record<AnomalyType, boolean>): { label: string; cls: string } {
+function getRecordStatus(anomalies: Record<AnomalyType, boolean>): { label: RecordStatus; cls: string } {
   const count = ["particle", "pressure", "temp", "humidity"].filter((k) => anomalies[k as AnomalyType]).length;
-  if (count === 0) return { label: "正常", cls: "record-status-ok" };
+  if (count === 0) return { label: "稳定", cls: "record-status-ok" };
   if (count === 1) return { label: "关注", cls: "record-status-watch" };
   return { label: "异常", cls: "record-status-danger" };
 }
@@ -571,6 +589,319 @@ function PreviewTable({ thresholds, onCreateTicket, hasTicketForRecord }: Previe
   );
 }
 
+interface InspectionRecordFormProps {
+  thresholds: AreaThreshold[];
+  onSubmit: (record: InspectionRecord) => void;
+  existingRoomIds: string[];
+}
+
+function InspectionRecordForm({ thresholds, onSubmit, existingRoomIds }: InspectionRecordFormProps) {
+  const [form, setForm] = useState({
+    roomId: "",
+    area: planAreas[0] as CleanArea,
+    particle05um: "",
+    particle5um: "",
+    pressure: "",
+    temperature: "",
+    humidity: "",
+    deviceStatus: deviceStatuses[0] as DeviceStatus,
+    remark: "",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const previewRecord = useMemo(() => {
+    const p05 = parseFloat(form.particle05um);
+    const p5 = parseFloat(form.particle5um);
+    const press = parseFloat(form.pressure);
+    const temp = parseFloat(form.temperature);
+    const hum = parseFloat(form.humidity);
+
+    if (
+      isNaN(p05) || isNaN(p5) || isNaN(press) || isNaN(temp) || isNaN(hum) ||
+      p05 < 0 || p5 < 0 || press < 0 || temp < 0 || hum < 0
+    ) {
+      return null;
+    }
+
+    const record: SampleRecord = {
+      id: 0,
+      roomId: form.roomId,
+      area: form.area,
+      particle05um: p05,
+      particle5um: p5,
+      pressure: press,
+      temperature: temp,
+      humidity: hum,
+    };
+
+    const anomalies = checkAnomalies(record, thresholds);
+    const status = getRecordStatus(anomalies);
+    return { record, anomalies, status };
+  }, [form, thresholds]);
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!form.roomId.trim()) {
+      newErrors.roomId = "房间编号不能为空";
+    } else if (existingRoomIds.includes(form.roomId.trim())) {
+      newErrors.roomId = "该房间编号已存在巡检记录";
+    }
+
+    if (!form.particle05um.trim()) {
+      newErrors.particle05um = "粒子计数不能为空";
+    } else if (isNaN(parseFloat(form.particle05um)) || parseFloat(form.particle05um) < 0) {
+      newErrors.particle05um = "请输入有效的非负数";
+    }
+
+    if (!form.particle5um.trim()) {
+      newErrors.particle5um = "粒子计数不能为空";
+    } else if (isNaN(parseFloat(form.particle5um)) || parseFloat(form.particle5um) < 0) {
+      newErrors.particle5um = "请输入有效的非负数";
+    }
+
+    if (!form.pressure.trim()) {
+      newErrors.pressure = "压差值不能为空";
+    } else if (isNaN(parseFloat(form.pressure))) {
+      newErrors.pressure = "请输入有效的数值";
+    }
+
+    if (!form.temperature.trim()) {
+      newErrors.temperature = "温度不能为空";
+    } else if (isNaN(parseFloat(form.temperature))) {
+      newErrors.temperature = "请输入有效的数值";
+    }
+
+    if (!form.humidity.trim()) {
+      newErrors.humidity = "湿度不能为空";
+    } else if (isNaN(parseFloat(form.humidity)) || parseFloat(form.humidity) < 0 || parseFloat(form.humidity) > 100) {
+      newErrors.humidity = "请输入0-100之间的有效数值";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (!validateForm()) return;
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    const anomalies = checkAnomalies(
+      {
+        id: 0,
+        roomId: form.roomId.trim(),
+        area: form.area,
+        particle05um: parseFloat(form.particle05um),
+        particle5um: parseFloat(form.particle5um),
+        pressure: parseFloat(form.pressure),
+        temperature: parseFloat(form.temperature),
+        humidity: parseFloat(form.humidity),
+      },
+      thresholds
+    );
+    const status = getRecordStatus(anomalies);
+
+    const newRecord: InspectionRecord = {
+      id: Date.now(),
+      roomId: form.roomId.trim(),
+      area: form.area,
+      particle05um: parseFloat(form.particle05um),
+      particle5um: parseFloat(form.particle5um),
+      pressure: parseFloat(form.pressure),
+      temperature: parseFloat(form.temperature),
+      humidity: parseFloat(form.humidity),
+      deviceStatus: form.deviceStatus,
+      remark: form.remark.trim(),
+      createdAt: dateStr,
+      status: status.label,
+    };
+
+    onSubmit(newRecord);
+
+    setForm({
+      roomId: "",
+      area: planAreas[0],
+      particle05um: "",
+      particle5um: "",
+      pressure: "",
+      temperature: "",
+      humidity: "",
+      deviceStatus: deviceStatuses[0],
+      remark: "",
+    });
+    setErrors({});
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 2500);
+  };
+
+  const updateField = (field: keyof typeof form, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  return (
+    <section className="record-form-panel panel">
+      <div className="section-heading">
+        <div>
+          <p>{project.domain}</p>
+          <h2>巡检记录录入</h2>
+        </div>
+        {showSuccess && <span className="success-toast">✓ 提交成功</span>}
+      </div>
+
+      <div className="record-form-grid">
+        <label className={errors.roomId ? "has-error" : ""}>
+          <span>房间编号</span>
+          <input
+            placeholder="例如 CR-1201"
+            value={form.roomId}
+            onChange={(e) => updateField("roomId", e.target.value)}
+          />
+          {errors.roomId && <em className="error-text">{errors.roomId}</em>}
+        </label>
+
+        <label>
+          <span>洁净等级</span>
+          <select
+            value={form.area}
+            onChange={(e) => updateField("area", e.target.value)}
+          >
+            {planAreas.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className={errors.particle05um ? "has-error" : ""}>
+          <span>0.5μm粒子计数 (个/m³)</span>
+          <input
+            type="number"
+            min="0"
+            placeholder="填写0.5μm粒子数"
+            value={form.particle05um}
+            onChange={(e) => updateField("particle05um", e.target.value)}
+          />
+          {errors.particle05um && <em className="error-text">{errors.particle05um}</em>}
+        </label>
+
+        <label className={errors.particle5um ? "has-error" : ""}>
+          <span>5.0μm粒子计数 (个/m³)</span>
+          <input
+            type="number"
+            min="0"
+            placeholder="填写5.0μm粒子数"
+            value={form.particle5um}
+            onChange={(e) => updateField("particle5um", e.target.value)}
+          />
+          {errors.particle5um && <em className="error-text">{errors.particle5um}</em>}
+        </label>
+
+        <label className={errors.pressure ? "has-error" : ""}>
+          <span>压差 (Pa)</span>
+          <input
+            type="number"
+            placeholder="填写压差值"
+            value={form.pressure}
+            onChange={(e) => updateField("pressure", e.target.value)}
+          />
+          {errors.pressure && <em className="error-text">{errors.pressure}</em>}
+        </label>
+
+        <label className={errors.temperature ? "has-error" : ""}>
+          <span>温度 (°C)</span>
+          <input
+            type="number"
+            step="0.1"
+            placeholder="填写温度值"
+            value={form.temperature}
+            onChange={(e) => updateField("temperature", e.target.value)}
+          />
+          {errors.temperature && <em className="error-text">{errors.temperature}</em>}
+        </label>
+
+        <label className={errors.humidity ? "has-error" : ""}>
+          <span>湿度 (%)</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            placeholder="填写湿度值"
+            value={form.humidity}
+            onChange={(e) => updateField("humidity", e.target.value)}
+          />
+          {errors.humidity && <em className="error-text">{errors.humidity}</em>}
+        </label>
+
+        <label>
+          <span>设备状态</span>
+          <select
+            value={form.deviceStatus}
+            onChange={(e) => updateField("deviceStatus", e.target.value)}
+          >
+            {deviceStatuses.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="record-form-remark">
+          <span>处理备注</span>
+          <textarea
+            placeholder="填写处理说明或备注信息"
+            value={form.remark}
+            onChange={(e) => updateField("remark", e.target.value)}
+          />
+        </label>
+      </div>
+
+      {previewRecord && (
+        <div className="record-preview">
+          <div className="record-preview-title">
+            <span>实时判定预览</span>
+            <span className={`record-status ${previewRecord.status.cls}`}>
+              {previewRecord.status.label}
+            </span>
+          </div>
+          <div className="record-preview-items">
+            <div className={`preview-item ${previewRecord.anomalies.particle ? "anomaly" : ""}`}>
+              <span>粒子计数</span>
+              <strong>{previewRecord.record.particle05um.toLocaleString()} / {previewRecord.record.particle5um.toLocaleString()}</strong>
+            </div>
+            <div className={`preview-item ${previewRecord.anomalies.pressure ? "anomaly" : ""}`}>
+              <span>压差</span>
+              <strong>{previewRecord.record.pressure} Pa</strong>
+            </div>
+            <div className={`preview-item ${previewRecord.anomalies.temp ? "anomaly" : ""}`}>
+              <span>温度</span>
+              <strong>{previewRecord.record.temperature}°C</strong>
+            </div>
+            <div className={`preview-item ${previewRecord.anomalies.humidity ? "anomaly" : ""}`}>
+              <span>湿度</span>
+              <strong>{previewRecord.record.humidity}%</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="record-form-actions">
+        <button className="primary-action" onClick={handleSubmit}>
+          提交巡检记录
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function InspectionSchedule() {
   const [plans, setPlans] = useState<InspectionPlan[]>(initialPlans);
   const [activeFilter, setActiveFilter] = useState<"全部" | PlanStatus>("全部");
@@ -857,6 +1188,7 @@ function AnomalyTicketManagement({ tickets, onAddTicket, onStatusChange }: Anoma
 function App() {
   const [thresholds, setThresholds] = useState<AreaThreshold[]>(defaultThresholds);
   const [tickets, setTickets] = useState<AnomalyTicket[]>(initialTickets);
+  const [inspectionRecords, setInspectionRecords] = useState<InspectionRecord[]>([]);
 
   const handleAddTicket = (ticketData: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => {
     const now = new Date();
@@ -907,6 +1239,14 @@ function App() {
   const hasTicketForRecord = (recordId: number, anomalyType: TicketAnomalyType): boolean => {
     return tickets.some((t) => t.sourceRecordId === recordId && t.anomalyType === anomalyType);
   };
+
+  const handleAddInspectionRecord = (record: InspectionRecord) => {
+    setInspectionRecords((prev) => [record, ...prev]);
+  };
+
+  const existingRoomIds = useMemo(() => {
+    return inspectionRecords.map((r) => r.roomId);
+  }, [inspectionRecords]);
 
   const metricValues = useMemo(() => {
     const results = sampleRecords.map((r) => checkAnomalies(r, thresholds));
@@ -971,23 +1311,11 @@ function App() {
           </div>
         </aside>
 
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
-            </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
+        <InspectionRecordForm
+          thresholds={thresholds}
+          onSubmit={handleAddInspectionRecord}
+          existingRoomIds={existingRoomIds}
+        />
       </section>
 
       <InspectionSchedule />
@@ -1001,29 +1329,53 @@ function App() {
       <section className="records panel">
         <div className="section-heading">
           <div>
-            <p>示例数据（跟随阈值实时更新）</p>
+            <p>最新提交的巡检记录</p>
             <h2>近期记录</h2>
           </div>
-          <button>导出摘要</button>
+          <div className="record-count-badge">共 {inspectionRecords.length} 条</div>
         </div>
         <div className="record-list">
-          {dynamicRecords.map((record, index) => {
-            const statusCls =
-              record[2] === "正常" ? "record-status-ok" :
-              record[2] === "关注" ? "record-status-watch" : "record-status-danger";
-            return (
-              <article key={record.join("-")} className="record-card">
-                <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-                <div>
-                  <h3>
-                    {record[0]}
-                    <span className={`record-status-inline ${statusCls}`}>{record[2]}</span>
-                  </h3>
-                  <p>{record.slice(1).join(" · ")}</p>
-                </div>
-              </article>
-            );
-          })}
+          {inspectionRecords.length > 0 ? (
+            inspectionRecords.map((record, index) => {
+              const statusCls =
+                record.status === "稳定" ? "record-status-ok" :
+                record.status === "关注" ? "record-status-watch" : "record-status-danger";
+              return (
+                <article key={record.id} className="record-card inspection-record-card">
+                  <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
+                  <div className="inspection-record-body">
+                    <div className="inspection-record-header">
+                      <h3>
+                        {record.roomId}
+                        <span className={`record-status-inline ${statusCls}`}>{record.status}</span>
+                      </h3>
+                      <span className="record-area-tag">{record.area}</span>
+                    </div>
+                    <div className="inspection-record-meta">
+                      <span>粒子: {record.particle05um.toLocaleString()} / {record.particle5um.toLocaleString()}</span>
+                      <span>压差: {record.pressure}Pa</span>
+                      <span>温度: {record.temperature}°C</span>
+                      <span>湿度: {record.humidity}%</span>
+                    </div>
+                    <div className="inspection-record-footer">
+                      <span className="record-device-status">设备: {record.deviceStatus}</span>
+                      <span className="record-time">{record.createdAt}</span>
+                    </div>
+                    {record.remark && (
+                      <div className="inspection-record-remark">
+                        <span>备注:</span> {record.remark}
+                      </div>
+                    )}
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <div className="empty-records">
+              <p>暂无巡检记录</p>
+              <p className="empty-hint">请在上方表单中填写并提交巡检记录</p>
+            </div>
+          )}
         </div>
       </section>
     </main>
