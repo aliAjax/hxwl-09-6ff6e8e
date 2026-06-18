@@ -1,4 +1,35 @@
+import { useState } from "react";
 import "./styles.css";
+
+type PlanStatus = "未开始" | "进行中" | "已完成";
+
+interface InspectionPlan {
+  id: number;
+  date: string;
+  area: string;
+  role: string;
+  inspector: string;
+  status: PlanStatus;
+}
+
+const initialPlans: InspectionPlan[] = [
+  { id: 1, date: "2026-06-18", area: "ISO 5", role: "巡检员", inspector: "张伟", status: "进行中" },
+  { id: 2, date: "2026-06-18", area: "ISO 6", role: "厂务工程师", inspector: "李娜", status: "未开始" },
+  { id: 3, date: "2026-06-18", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成" },
+  { id: 4, date: "2026-06-18", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始" },
+  { id: 5, date: "2026-06-18", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成" },
+];
+
+const statusFilters: ("全部" | PlanStatus)[] = ["全部", "未开始", "进行中", "已完成"];
+
+const planAreas = ["ISO 5", "ISO 6", "ISO 7", "黄光区"];
+const planRoles = ["巡检员", "厂务工程师", "班组长"];
+
+const statusTagClass: Record<PlanStatus, string> = {
+  "未开始": "plan-tag-pending",
+  "进行中": "plan-tag-active",
+  "已完成": "plan-tag-done",
+};
 
 const project = {
   "id": "hxwl-09",
@@ -72,6 +103,115 @@ function MetricCard({ label, value, index }: { label: string; value: string; ind
   );
 }
 
+function InspectionSchedule() {
+  const [plans, setPlans] = useState<InspectionPlan[]>(initialPlans);
+  const [activeFilter, setActiveFilter] = useState<"全部" | PlanStatus>("全部");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ date: "2026-06-18", area: planAreas[0], role: planRoles[0], inspector: "" });
+
+  const filtered = activeFilter === "全部" ? plans : plans.filter((p) => p.status === activeFilter);
+
+  const counts = {
+    "未开始": plans.filter((p) => p.status === "未开始").length,
+    "进行中": plans.filter((p) => p.status === "进行中").length,
+    "已完成": plans.filter((p) => p.status === "已完成").length,
+  };
+
+  const handleAdd = () => {
+    if (!form.inspector.trim()) return;
+    const next: InspectionPlan = {
+      id: Date.now(),
+      date: form.date,
+      area: form.area,
+      role: form.role,
+      inspector: form.inspector.trim(),
+      status: "未开始",
+    };
+    setPlans((prev) => [...prev, next]);
+    setForm((prev) => ({ ...prev, inspector: "" }));
+    setShowForm(false);
+  };
+
+  return (
+    <section className="plan-section panel">
+      <div className="section-heading">
+        <div>
+          <p>今日排班</p>
+          <h2>巡检计划排班</h2>
+        </div>
+        <button className="primary-action" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "收起表单" : "新增计划"}
+        </button>
+      </div>
+
+      <div className="plan-stats">
+        {(Object.entries(counts) as [PlanStatus, number][]).map(([label, count]) => (
+          <div key={label} className={`plan-stat ${statusTagClass[label]}`}>
+            <strong>{count}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="chips muted" style={{ marginBottom: 18 }}>
+        {statusFilters.map((f) => (
+          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => setActiveFilter(f)}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {showForm && (
+        <div className="plan-form">
+          <label>
+            <span>日期</span>
+            <input type="date" value={form.date} onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))} />
+          </label>
+          <label>
+            <span>区域</span>
+            <select value={form.area} onChange={(e) => setForm((p) => ({ ...p, area: e.target.value }))}>
+              {planAreas.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>角色</span>
+            <select value={form.role} onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}>
+              {planRoles.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>巡检员</span>
+            <input placeholder="填写巡检员姓名" value={form.inspector} onChange={(e) => setForm((p) => ({ ...p, inspector: e.target.value }))} />
+          </label>
+          <button className="primary-action" style={{ alignSelf: "end" }} onClick={handleAdd}>
+            确认新增
+          </button>
+        </div>
+      )}
+
+      <div className="record-list">
+        {filtered.map((plan) => (
+          <article key={plan.id} className="record-card plan-card">
+            <div className="record-index">{plan.area}</div>
+            <div className="plan-card-body">
+              <div className="plan-card-top">
+                <h3>{plan.inspector}</h3>
+                <span className={`plan-tag ${statusTagClass[plan.status]}`}>{plan.status}</span>
+              </div>
+              <p>{plan.date} · {plan.role}</p>
+            </div>
+          </article>
+        ))}
+        {filtered.length === 0 && <p className="plan-empty">暂无匹配的巡检计划</p>}
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const values = project.metrics.map((metric: string, index: number) => {
     const base = [84, 12, 31, 7][index % 4];
@@ -132,6 +272,8 @@ function App() {
           </div>
         </section>
       </section>
+
+      <InspectionSchedule />
 
       <section className="records panel">
         <div className="section-heading">
