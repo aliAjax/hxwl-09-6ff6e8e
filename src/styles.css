@@ -1243,3 +1243,309 @@ input {
     min-width: 100%;
   }
 }
+
+.trend-section {
+  margin-bottom: 20px;
+}
+
+.trend-hint {
+  font-size: 12px;
+  color: #64748b;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--primary) 8%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, #dbe3ef);
+  border-radius: 6px;
+  align-self: center;
+  white-space: nowrap;
+}
+
+.trend-filters {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.trend-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.trend-filter-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  min-width: 70px;
+}
+
+.trend-filters .chips {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.trend-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.trend-metric-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.trend-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(31, 41, 55, 0.1);
+}
+
+.trend-metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.trend-metric-label {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.trend-metric-icon {
+  font-size: 16px;
+}
+
+.trend-metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.trend-metric-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.trend-metric-sub.trend-up {
+  color: #e11d48;
+}
+
+.trend-metric-sub.trend-down {
+  color: #16a34a;
+}
+
+.trend-metric-sub.trend-stable {
+  color: #64748b;
+}
+
+.trend-chart-section {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.trend-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.trend-chart-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.trend-chart-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.trend-chart-summary {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.trend-summary-item {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.trend-summary-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.trend-summary-item strong {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.trend-chart-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.trend-chart {
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+  display: block;
+}
+
+.chart-line {
+  transition: all 0.3s ease;
+}
+
+.chart-area {
+  transition: all 0.3s ease;
+}
+
+.chart-point-group:hover .chart-point {
+  r: 6;
+}
+
+.chart-point-group:hover .chart-point-value {
+  opacity: 1;
+}
+
+.chart-point {
+  transition: r 0.2s ease;
+}
+
+.chart-point-value {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.chart-point-hit {
+  cursor: pointer;
+}
+
+.trend-insights-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #334155;
+  margin: 0 0 14px;
+}
+
+.trend-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.trend-insight-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.trend-insight-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.trend-insight-label {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 4px;
+}
+
+.trend-insight-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 860px) {
+  .trend-filter-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .trend-filter-label {
+    min-width: auto;
+  }
+
+  .trend-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .trend-metric-value {
+    font-size: 24px;
+  }
+
+  .trend-chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .trend-chart-summary {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .trend-summary-item {
+    text-align: left;
+  }
+
+  .trend-chart {
+    min-width: 500px;
+  }
+
+  .trend-insights-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-hint {
+    white-space: normal;
+    text-align: left;
+    align-self: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .trend-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-chart {
+    min-width: 380px;
+  }
+
+  .trend-filters .chips button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}

@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import "./styles.css";
+import AnomalyTrendAnalysis from "./AnomalyTrendAnalysis";
 
 type PlanStatus = "未开始" | "进行中" | "已完成";
 type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
@@ -1290,6 +1291,8 @@ function App() {
           <MetricCard key={metric} label={metric} value={metricValues[index]} index={index} />
         ))}
       </section>
+
+      <AnomalyTrendAnalysis />
 
       <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />
 
