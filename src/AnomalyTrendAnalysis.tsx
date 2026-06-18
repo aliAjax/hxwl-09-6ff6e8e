@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import {
   generateAnomalyTrendData,
   anomalyTypes,
@@ -7,9 +7,7 @@ import {
   type AnomalyTrendData,
   type TrendDataPoint,
 } from "./mockData";
-
-type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
-type TrendAnomalyType = "粒子异常" | "压差异常" | "温湿度偏移" | "待处理数量";
+import type { CleanArea, TrendAnomalyType } from "./db";
 
 function TrendChart({
   data,
@@ -201,9 +199,19 @@ function SummaryMetricCard({
   );
 }
 
-function AnomalyTrendAnalysis() {
-  const [selectedArea, setSelectedArea] = useState<CleanArea | "全部">("全部");
-  const [selectedType, setSelectedType] = useState<TrendAnomalyType>("粒子异常");
+interface AnomalyTrendAnalysisProps {
+  selectedArea: CleanArea | "全部";
+  selectedType: TrendAnomalyType;
+  onAreaChange: (area: CleanArea | "全部") => void;
+  onTypeChange: (type: TrendAnomalyType) => void;
+}
+
+function AnomalyTrendAnalysis({
+  selectedArea,
+  selectedType,
+  onAreaChange,
+  onTypeChange,
+}: AnomalyTrendAnalysisProps) {
 
   const allTrendData = useMemo(() => {
     return anomalyTypes.map((type) => ({
@@ -243,7 +251,7 @@ function AnomalyTrendAnalysis() {
               <button
                 key={area}
                 className={selectedArea === area ? "chip-active" : ""}
-                onClick={() => setSelectedArea(area)}
+                onClick={() => onAreaChange(area)}
               >
                 {area}
               </button>
@@ -258,7 +266,7 @@ function AnomalyTrendAnalysis() {
               <button
                 key={type}
                 className={selectedType === type ? "chip-active" : ""}
-                onClick={() => setSelectedType(type)}
+                onClick={() => onTypeChange(type)}
                 style={selectedType === type ? {
                   background: anomalyTypeColors[type],
                   borderColor: anomalyTypeColors[type],

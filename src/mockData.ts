@@ -1,9 +1,14 @@
-type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
-type TrendAnomalyType = "粒子异常" | "压差异常" | "温湿度偏移" | "待处理数量";
-type RoleType = "巡检员" | "厂务工程师" | "班组长";
-type DeviceStatusType = "运行中" | "待机" | "故障" | "维护中";
-type TaskPriority = "高" | "中" | "低";
-type TaskStatus = "待处理" | "进行中" | "已完成" | "已逾期";
+import type {
+  CleanArea,
+  TrendAnomalyType,
+  RoleType,
+} from "./db/types";
+
+export type { CleanArea, TrendAnomalyType, RoleType };
+
+export type DeviceStatusType = "运行中" | "待机" | "故障" | "维护中";
+export type TaskPriority = "高" | "中" | "低";
+export type TaskStatus = "待处理" | "进行中" | "已完成" | "已逾期";
 
 export interface PendingRoom {
   id: number;

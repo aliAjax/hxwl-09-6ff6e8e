@@ -2,38 +2,25 @@ import { useState, useMemo } from "react";
 import "./styles.css";
 import AnomalyTrendAnalysis from "./AnomalyTrendAnalysis";
 import RoleDashboard from "./RoleDashboard";
+import {
+  usePersistence,
+  type PlanStatus,
+  type CleanArea,
+  type TicketStatus,
+  type TicketAnomalyType,
+  type DeviceStatus,
+  type RecordStatus,
+  type AreaThreshold,
+  type InspectionRecord,
+  type AnomalyTicket,
+  type InspectionPlan,
+  type ThresholdRange,
+  type AnomalyType,
+  type TrendAnomalyType,
+  type RoleType,
+} from "./db";
 
-type PlanStatus = "未开始" | "进行中" | "已完成";
-type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
-type TicketStatus = "待处理" | "处理中" | "已关闭";
-type TicketAnomalyType = "粒子异常" | "压差异常" | "温湿度偏移";
-type DeviceStatus = "运行中" | "待机" | "故障";
-type RecordStatus = "稳定" | "关注" | "异常";
-
-interface InspectionPlan {
-  id: number;
-  date: string;
-  area: string;
-  role: string;
-  inspector: string;
-  status: PlanStatus;
-}
-
-interface ThresholdRange {
-  min: number;
-  max: number;
-}
-
-interface AreaThreshold {
-  area: CleanArea;
-  particle05um: number;
-  particle5um: number;
-  pressure: ThresholdRange;
-  temperature: ThresholdRange;
-  humidity: ThresholdRange;
-}
-
-interface SampleRecord {
+type SampleRecord = {
   id: number;
   roomId: string;
   area: CleanArea;
@@ -42,69 +29,7 @@ interface SampleRecord {
   pressure: number;
   temperature: number;
   humidity: number;
-}
-
-interface InspectionRecord {
-  id: number;
-  roomId: string;
-  area: CleanArea;
-  particle05um: number;
-  particle5um: number;
-  pressure: number;
-  temperature: number;
-  humidity: number;
-  deviceStatus: DeviceStatus;
-  remark: string;
-  createdAt: string;
-  status: RecordStatus;
-}
-
-interface AnomalyTicket {
-  id: number;
-  roomId: string;
-  area: CleanArea;
-  anomalyType: TicketAnomalyType;
-  assignee: string;
-  status: TicketStatus;
-  remark: string;
-  createdAt: string;
-  sourceRecordId?: number;
-}
-
-const defaultThresholds: AreaThreshold[] = [
-  {
-    area: "ISO 5",
-    particle05um: 3520,
-    particle5um: 29,
-    pressure: { min: 12, max: 20 },
-    temperature: { min: 20, max: 24 },
-    humidity: { min: 40, max: 50 },
-  },
-  {
-    area: "ISO 6",
-    particle05um: 35200,
-    particle5um: 293,
-    pressure: { min: 10, max: 18 },
-    temperature: { min: 20, max: 25 },
-    humidity: { min: 35, max: 55 },
-  },
-  {
-    area: "ISO 7",
-    particle05um: 352000,
-    particle5um: 2930,
-    pressure: { min: 8, max: 15 },
-    temperature: { min: 18, max: 26 },
-    humidity: { min: 30, max: 60 },
-  },
-  {
-    area: "黄光区",
-    particle05um: 35200,
-    particle5um: 293,
-    pressure: { min: 10, max: 18 },
-    temperature: { min: 21, max: 25 },
-    humidity: { min: 40, max: 55 },
-  },
-];
+};
 
 const sampleRecords: SampleRecord[] = [
   { id: 1, roomId: "CR-1201", area: "ISO 5", particle05um: 4200, particle5um: 35, pressure: 15, temperature: 22, humidity: 45 },
@@ -120,12 +45,6 @@ const initialPlans: InspectionPlan[] = [
   { id: 3, date: "2026-06-18", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成" },
   { id: 4, date: "2026-06-18", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始" },
   { id: 5, date: "2026-06-18", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成" },
-];
-
-const initialTickets: AnomalyTicket[] = [
-  { id: 1, roomId: "CR-1201", area: "ISO 5", anomalyType: "粒子异常", assignee: "张伟", status: "待处理", remark: "0.5μm和5.0μm粒子均超限", createdAt: "2026-06-18 09:30", sourceRecordId: 1 },
-  { id: 2, roomId: "CR-3305", area: "ISO 7", anomalyType: "压差异常", assignee: "李娜", status: "处理中", remark: "压差低于下限，正在排查阀门", createdAt: "2026-06-18 10:15", sourceRecordId: 4 },
-  { id: 3, roomId: "CR-3305", area: "ISO 7", anomalyType: "温湿度偏移", assignee: "王强", status: "已关闭", remark: "空调系统已修复，温湿度恢复正常", createdAt: "2026-06-17 14:20", sourceRecordId: 4 },
 ];
 
 const ticketStatusFilters: ("全部" | TicketStatus)[] = ["全部", "待处理", "处理中", "已关闭"];
@@ -156,31 +75,6 @@ const statusTagClass: Record<PlanStatus, string> = {
   "已完成": "plan-tag-done",
 };
 
-type AnomalyType = "particle" | "pressure" | "temp" | "humidity" | "none";
-
-function checkAnomalies(record: SampleRecord, thresholds: AreaThreshold[]): Record<AnomalyType, boolean> {
-  const th = thresholds.find((t) => t.area === record.area);
-  if (!th) return { particle: false, pressure: false, temp: false, humidity: false, none: true };
-  const particleBad = record.particle05um > th.particle05um || record.particle5um > th.particle5um;
-  const pressureBad = record.pressure < th.pressure.min || record.pressure > th.pressure.max;
-  const tempBad = record.temperature < th.temperature.min || record.temperature > th.temperature.max;
-  const humidityBad = record.humidity < th.humidity.min || record.humidity > th.humidity.max;
-  return {
-    particle: particleBad,
-    pressure: pressureBad,
-    temp: tempBad,
-    humidity: humidityBad,
-    none: !particleBad && !pressureBad && !tempBad && !humidityBad,
-  };
-}
-
-function getRecordStatus(anomalies: Record<AnomalyType, boolean>): { label: RecordStatus; cls: string } {
-  const count = ["particle", "pressure", "temp", "humidity"].filter((k) => anomalies[k as AnomalyType]).length;
-  if (count === 0) return { label: "稳定", cls: "record-status-ok" };
-  if (count === 1) return { label: "关注", cls: "record-status-watch" };
-  return { label: "异常", cls: "record-status-danger" };
-}
-
 const project = {
   "id": "hxwl-09",
   "port": 5109,
@@ -202,7 +96,7 @@ const project = {
     "粒子异常",
     "压差异常",
     "温湿度偏移",
-    "待处理"
+    "待处理数量"
   ],
   "filters": [
     "ISO 5",
@@ -242,6 +136,29 @@ const project = {
 };
 
 const statusColors = ["status-ok", "status-watch", "status-danger"];
+
+function checkAnomalies(record: SampleRecord, thresholds: AreaThreshold[]): Record<AnomalyType, boolean> {
+  const th = thresholds.find((t) => t.area === record.area);
+  if (!th) return { particle: false, pressure: false, temp: false, humidity: false, none: true };
+  const particleBad = record.particle05um > th.particle05um || record.particle5um > th.particle5um;
+  const pressureBad = record.pressure < th.pressure.min || record.pressure > th.pressure.max;
+  const tempBad = record.temperature < th.temperature.min || record.temperature > th.temperature.max;
+  const humidityBad = record.humidity < th.humidity.min || record.humidity > th.humidity.max;
+  return {
+    particle: particleBad,
+    pressure: pressureBad,
+    temp: tempBad,
+    humidity: humidityBad,
+    none: !particleBad && !pressureBad && !tempBad && !humidityBad,
+  };
+}
+
+function getRecordStatus(anomalies: Record<AnomalyType, boolean>): { label: RecordStatus; cls: string } {
+  const count = ["particle", "pressure", "temp", "humidity"].filter((k) => anomalies[k as AnomalyType]).length;
+  if (count === 0) return { label: "稳定", cls: "record-status-ok" };
+  if (count === 1) return { label: "关注", cls: "record-status-watch" };
+  return { label: "异常", cls: "record-status-danger" };
+}
 
 function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
   return (
@@ -357,8 +274,8 @@ function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
           <div className="threshold-edit-modal" onClick={(e) => e.stopPropagation()}>
             <div className="section-heading">
               <div>
-                <p>编辑阈值</p>
-                <h2>{draft.area}</h2>
+              <p>编辑阈值</p>
+              <h2>{draft.area}</h2>
               </div>
             </div>
 
@@ -904,9 +821,13 @@ function InspectionRecordForm({ thresholds, onSubmit, existingRoomIds }: Inspect
   );
 }
 
-function InspectionSchedule() {
+interface InspectionScheduleProps {
+  activeFilter: "全部" | PlanStatus;
+  onFilterChange: (filter: "全部" | PlanStatus) => void;
+}
+
+function InspectionSchedule({ activeFilter, onFilterChange }: InspectionScheduleProps) {
   const [plans, setPlans] = useState<InspectionPlan[]>(initialPlans);
-  const [activeFilter, setActiveFilter] = useState<"全部" | PlanStatus>("全部");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ date: "2026-06-18", area: planAreas[0], role: planRoles[0], inspector: "" });
 
@@ -956,7 +877,7 @@ function InspectionSchedule() {
 
       <div className="chips muted" style={{ marginBottom: 18 }}>
         {statusFilters.map((f) => (
-          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => setActiveFilter(f)}>
+          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => onFilterChange(f)}>
             {f}
           </button>
         ))}
@@ -1015,12 +936,13 @@ function InspectionSchedule() {
 
 interface AnomalyTicketManagementProps {
   tickets: AnomalyTicket[];
+  activeFilter: "全部" | TicketStatus;
+  onFilterChange: (filter: "全部" | TicketStatus) => void;
   onAddTicket: (ticket: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => void;
   onStatusChange: (ticketId: number, status: TicketStatus) => void;
 }
 
-function AnomalyTicketManagement({ tickets, onAddTicket, onStatusChange }: AnomalyTicketManagementProps) {
-  const [activeFilter, setActiveFilter] = useState<"全部" | TicketStatus>("全部");
+function AnomalyTicketManagement({ tickets, activeFilter, onFilterChange, onAddTicket, onStatusChange }: AnomalyTicketManagementProps) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     roomId: "",
@@ -1086,7 +1008,7 @@ function AnomalyTicketManagement({ tickets, onAddTicket, onStatusChange }: Anoma
 
       <div className="chips muted" style={{ marginBottom: 18 }}>
         {ticketStatusFilters.map((f) => (
-          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => setActiveFilter(f)}>
+          <button key={f} className={activeFilter === f ? "chip-active" : ""} onClick={() => onFilterChange(f)}>
             {f}
           </button>
         ))}
@@ -1187,10 +1109,64 @@ function AnomalyTicketManagement({ tickets, onAddTicket, onStatusChange }: Anoma
   );
 }
 
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmText,
+  cancelText,
+  onConfirm,
+  onCancel,
+  danger = false,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  danger?: boolean;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="confirm-overlay" onClick={onCancel}>
+      <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="confirm-title">{title}</h3>
+        <p className="confirm-message">{message}</p>
+        <div className="confirm-actions">
+          <button onClick={onCancel}>{cancelText ?? "取消"}</button>
+          <button
+            className={danger ? "danger-action" : "primary-action"}
+            onClick={onConfirm}
+          >
+            {confirmText ?? "确认"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
-  const [thresholds, setThresholds] = useState<AreaThreshold[]>(defaultThresholds);
-  const [tickets, setTickets] = useState<AnomalyTicket[]>(initialTickets);
-  const [inspectionRecords, setInspectionRecords] = useState<InspectionRecord[]>([]);
+  const {
+    thresholds,
+    inspectionRecords,
+    anomalyTickets,
+    filters,
+    isLoading,
+    setThresholds,
+    addInspectionRecord,
+    addAnomalyTicket,
+    updateAnomalyTicketStatus,
+    setFilters,
+    clearLocalData,
+    resetToSampleData,
+  } = usePersistence();
+
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleAddTicket = (ticketData: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => {
     const now = new Date();
@@ -1201,13 +1177,7 @@ function App() {
       createdAt: dateStr,
       ...ticketData,
     };
-    setTickets((prev) => [...prev, newTicket]);
-  };
-
-  const handleTicketStatusChange = (ticketId: number, status: TicketStatus) => {
-    setTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
-    );
+    addAnomalyTicket(newTicket);
   };
 
   const handleCreateTicketFromRecord = (record: SampleRecord, anomalyType: TicketAnomalyType) => {
@@ -1239,11 +1209,7 @@ function App() {
   };
 
   const hasTicketForRecord = (recordId: number, anomalyType: TicketAnomalyType): boolean => {
-    return tickets.some((t) => t.sourceRecordId === recordId && t.anomalyType === anomalyType);
-  };
-
-  const handleAddInspectionRecord = (record: InspectionRecord) => {
-    setInspectionRecords((prev) => [record, ...prev]);
+    return anomalyTickets.some((t) => t.sourceRecordId === recordId && t.anomalyType === anomalyType);
   };
 
   const existingRoomIds = useMemo(() => {
@@ -1306,6 +1272,47 @@ function App() {
     });
   }, [thresholds]);
 
+  const handlePlanStatusFilter = (filter: "全部" | PlanStatus) => {
+    setFilters({ ...filters, planStatusFilter: filter });
+  };
+
+  const handleTicketStatusFilter = (filter: "全部" | TicketStatus) => {
+    setFilters({ ...filters, ticketStatusFilter: filter });
+  };
+
+  const handleTrendAreaFilter = (area: CleanArea | "全部") => {
+    setFilters({ ...filters, trendAreaFilter: area });
+  };
+
+  const handleTrendTypeFilter = (type: TrendAnomalyType) => {
+    setFilters({ ...filters, trendTypeFilter: type });
+  };
+
+  const handleRoleChange = (role: RoleType) => {
+    setFilters({ ...filters, activeRole: role });
+  };
+
+  const handleConfirmClear = async () => {
+    await clearLocalData();
+    setShowClearConfirm(false);
+  };
+
+  const handleConfirmReset = async () => {
+    await resetToSampleData();
+    setShowResetConfirm(false);
+  };
+
+  if (isLoading) {
+    return (
+      <main className="app-shell">
+        <div className="loading-panel panel">
+          <div className="loading-spinner" />
+          <p className="loading-text">正在加载本地数据...</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <section className="hero">
@@ -1313,14 +1320,36 @@ function App() {
           <p className="eyebrow">{project.id} · port {project.port}</p>
           <h1>{project.title}</h1>
           <p className="subtitle">{project.subtitle}</p>
+          <div className="hero-actions">
+            <button
+              className="hero-action-btn secondary"
+              onClick={() => setShowResetConfirm(true)}
+            >
+              恢复示例数据
+            </button>
+            <button
+              className="hero-action-btn danger"
+              onClick={() => setShowClearConfirm(true)}
+            >
+              清空本地数据
+            </button>
+          </div>
         </div>
         <div className="stack-card">
           <span>技术栈</span>
           <strong>{project.stack}</strong>
+          <div className="storage-info">
+            <span className="storage-label">数据存储</span>
+            <span className="storage-value">本地 IndexedDB</span>
+          </div>
         </div>
       </section>
 
-      <RoleDashboard onQuickAction={handleQuickAction} />
+      <RoleDashboard
+        onQuickAction={handleQuickAction}
+        activeRole={filters.activeRole}
+        onRoleChange={handleRoleChange}
+      />
 
       <section className="metrics-grid">
         {project.metrics.map((metric: string, index: number) => (
@@ -1328,7 +1357,12 @@ function App() {
         ))}
       </section>
 
-      <AnomalyTrendAnalysis />
+      <AnomalyTrendAnalysis
+        selectedArea={filters.trendAreaFilter}
+        selectedType={filters.trendTypeFilter}
+        onAreaChange={handleTrendAreaFilter}
+        onTypeChange={handleTrendTypeFilter}
+      />
 
       <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />
 
@@ -1352,17 +1386,22 @@ function App() {
 
         <InspectionRecordForm
           thresholds={thresholds}
-          onSubmit={handleAddInspectionRecord}
+          onSubmit={addInspectionRecord}
           existingRoomIds={existingRoomIds}
         />
       </section>
 
-      <InspectionSchedule />
+      <InspectionSchedule
+        activeFilter={filters.planStatusFilter}
+        onFilterChange={handlePlanStatusFilter}
+      />
 
       <AnomalyTicketManagement
-        tickets={tickets}
+        tickets={anomalyTickets}
+        activeFilter={filters.ticketStatusFilter}
+        onFilterChange={handleTicketStatusFilter}
         onAddTicket={handleAddTicket}
-        onStatusChange={handleTicketStatusChange}
+        onStatusChange={updateAnomalyTicketStatus}
       />
 
       <section className="records panel">
@@ -1410,13 +1449,34 @@ function App() {
               );
             })
           ) : (
-            <div className="empty-records">
-              <p>暂无巡检记录</p>
-              <p className="empty-hint">请在上方表单中填写并提交巡检记录</p>
-            </div>
-          )}
-        </div>
+              <div className="empty-records">
+                <p>暂无巡检记录</p>
+                <p className="empty-hint">请在上方表单中填写并提交巡检记录</p>
+              </div>
+            )}
+          </div>
       </section>
+
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="清空本地数据"
+        message="确定要清空所有本地存储的数据吗？此操作将删除所有巡检记录、阈值配置、异常工单和筛选条件，并恢复为内置示例数据。"
+        confirmText="确认清空"
+        cancelText="取消"
+        danger
+        onConfirm={handleConfirmClear}
+        onCancel={() => setShowClearConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showResetConfirm}
+        title="恢复示例数据"
+        message="确定要恢复为内置示例数据吗？此操作将覆盖当前所有数据并恢复为初始示例数据。"
+        confirmText="确认恢复"
+        cancelText="取消"
+        onConfirm={handleConfirmReset}
+        onCancel={() => setShowResetConfirm(false)}
+      />
     </main>
   );
 }

@@ -553,15 +553,16 @@ function SupervisorView({
 
 interface RoleDashboardProps {
   onQuickAction?: (action: string) => void;
+  activeRole: RoleType;
+  onRoleChange: (role: RoleType) => void;
 }
 
-export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
-  const [activeRole, setActiveRole] = useState<RoleType>("巡检员");
+export default function RoleDashboard({ onQuickAction, activeRole, onRoleChange }: RoleDashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<RoleDashboardData | null>(
     null
   );
-  const [displayedRole, setDisplayedRole] = useState<RoleType>("巡检员");
+  const [displayedRole, setDisplayedRole] = useState<RoleType>(activeRole);
 
   const loadRoleData = useCallback((role: RoleType) => {
     setIsLoading(true);
@@ -581,7 +582,7 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
 
   const handleRoleChange = (role: RoleType) => {
     if (role !== activeRole) {
-      setActiveRole(role);
+      onRoleChange(role);
     }
   };
 
