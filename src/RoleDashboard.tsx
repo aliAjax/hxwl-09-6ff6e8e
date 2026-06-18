@@ -557,21 +557,21 @@ interface RoleDashboardProps {
 
 export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
   const [activeRole, setActiveRole] = useState<RoleType>("巡检员");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<RoleDashboardData | null>(
     null
   );
-  const [showContent, setShowContent] = useState(false);
+  const [displayedRole, setDisplayedRole] = useState<RoleType>("巡检员");
 
   const loadRoleData = useCallback((role: RoleType) => {
     setIsLoading(true);
-    setShowContent(false);
+    setDashboardData(null);
+    setDisplayedRole(role);
 
     setTimeout(() => {
       const data = generateRoleDashboardData(role);
       setDashboardData(data);
       setIsLoading(false);
-      setTimeout(() => setShowContent(true), 50);
     }, 300);
   }, []);
 
@@ -591,17 +591,17 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
     }
   };
 
-  const roleColor = roleColors[activeRole];
+  const displayRoleColor = roleColors[displayedRole];
 
   const renderRoleContent = () => {
     if (!dashboardData) return null;
 
-    switch (activeRole) {
+    switch (displayedRole) {
       case "巡检员":
         return (
           <InspectorView
             data={dashboardData}
-            roleColor={roleColor}
+            roleColor={displayRoleColor}
             onAction={handleAction}
           />
         );
@@ -609,7 +609,7 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
         return (
           <EngineerView
             data={dashboardData}
-            roleColor={roleColor}
+            roleColor={displayRoleColor}
             onAction={handleAction}
           />
         );
@@ -617,7 +617,7 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
         return (
           <SupervisorView
             data={dashboardData}
-            roleColor={roleColor}
+            roleColor={displayRoleColor}
             onAction={handleAction}
           />
         );
@@ -630,11 +630,11 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
     <section className="role-dashboard panel">
       <div className="role-header">
         <div className="role-header-left">
-          <p className="role-eyebrow" style={{ color: roleColor }}>
+          <p className="role-eyebrow" style={{ color: roleColors[activeRole] }}>
             角色工作台
           </p>
           <h1 className="role-title">
-            {dashboardData?.greeting}，{activeRole}
+            {dashboardData ? dashboardData.greeting : "加载中"}，{activeRole}
           </h1>
           <p className="role-subtitle">
             根据您的角色，以下是今日需要关注的重点内容
@@ -665,62 +665,67 @@ export default function RoleDashboard({ onQuickAction }: RoleDashboardProps) {
         </div>
       </div>
 
-      <div
-        className={`role-metrics-grid ${
-          showContent && !isLoading ? "visible" : "hidden"
-        }`}
-      >
-        {dashboardData?.metrics.map((metric, index) => (
-          <RoleMetricCard
-            key={index}
-            label={metric.label}
-            value={metric.value}
-            status={metric.status}
-            roleColor={roleColor}
-          />
-        ))}
-      </div>
-
-      <div
-        className={`role-skeleton ${isLoading ? "visible" : "hidden"}`}
-      >
-        <div className="role-skeleton-metrics">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="role-skeleton-card" />
-          ))}
-        </div>
-        <div className="role-skeleton-content">
-          <div className="role-skeleton-panel">
-            <div className="role-skeleton-heading" />
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="role-skeleton-item" />
+      {isLoading && (
+        <div className="role-skeleton">
+          <div className="role-skeleton-metrics">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="role-skeleton-card" />
             ))}
           </div>
-          <div className="role-skeleton-panel">
-            <div className="role-skeleton-heading" />
+          <div className="role-skeleton-actions">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="role-skeleton-item" />
+              <div key={i} className="role-skeleton-action" />
             ))}
           </div>
+          <div className="role-skeleton-content">
+            <div className="role-skeleton-panel">
+              <div className="role-skeleton-heading" />
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="role-skeleton-item" />
+              ))}
+            </div>
+            <div className="role-skeleton-panel">
+              <div className="role-skeleton-heading" />
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="role-skeleton-item" />
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={`role-actions ${showContent && !isLoading ? "visible" : "hidden"}`}>
-        {dashboardData?.quickActions.map((action, index) => (
-          <QuickActionButton
-            key={index}
-            label={action.label}
-            icon={action.icon}
-            action={action.action}
-            roleColor={roleColor}
-            onClick={handleAction}
-          />
-        ))}
-      </div>
+      {!isLoading && dashboardData && (
+        <>
+          <div className="role-metrics-grid role-content-fade">
+            {dashboardData.metrics.map((metric, index) => (
+              <RoleMetricCard
+                key={`${displayedRole}-metric-${index}`}
+                label={metric.label}
+                value={metric.value}
+                status={metric.status}
+                roleColor={displayRoleColor}
+              />
+            ))}
+          </div>
 
-      <div className={showContent && !isLoading ? "visible" : "hidden"}>
-        {renderRoleContent()}
-      </div>
+          <div className="role-actions role-content-fade">
+            {dashboardData.quickActions.map((action, index) => (
+              <QuickActionButton
+                key={`${displayedRole}-action-${index}`}
+                label={action.label}
+                icon={action.icon}
+                action={action.action}
+                roleColor={displayRoleColor}
+                onClick={handleAction}
+              />
+            ))}
+          </div>
+
+          <div className="role-content-fade">
+            {renderRoleContent()}
+          </div>
+        </>
+      )}
     </section>
   );
 }
