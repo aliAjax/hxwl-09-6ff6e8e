@@ -1216,6 +1216,64 @@ function App() {
     return inspectionRecords.map((r) => r.roomId);
   }, [inspectionRecords]);
 
+  const escapeCsvField = (value: string | number): string => {
+    const str = String(value ?? "");
+    if (str.includes(",") || str.includes("\"") || str.includes("\n") || str.includes("\r")) {
+      return `"${str.replace(/"/g, "\"\"")}"`;
+    }
+    return str;
+  };
+
+  const handleExportSummary = () => {
+    const filteredRecords = filters.trendAreaFilter === "全部"
+      ? inspectionRecords
+      : inspectionRecords.filter((r) => r.area === filters.trendAreaFilter);
+
+    if (filteredRecords.length === 0) {
+      const filterMsg = filters.trendAreaFilter === "全部" ? "" : `（洁净等级：${filters.trendAreaFilter}）`;
+      alert(`暂无匹配的巡检数据${filterMsg}，无法导出。请先录入巡检记录或调整筛选条件。`);
+      return;
+    }
+
+    const now = new Date();
+    const exportTimeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+
+    const headers = ["房间编号", "洁净等级", "异常状态", "关键读数", "处理备注", "导出时间"];
+
+    const rows = filteredRecords.map((record) => {
+      const keyReadings = `0.5μm:${record.particle05um.toLocaleString()} 5.0μm:${record.particle5um.toLocaleString()} | 压差:${record.pressure}Pa | 温度:${record.temperature}°C | 湿度:${record.humidity}%`;
+      return [
+        record.roomId,
+        record.area,
+        record.status,
+        keyReadings,
+        record.remark || "",
+        exportTimeStr,
+      ];
+    });
+
+    const csvLines = [
+      headers.map(escapeCsvField).join(","),
+      ...rows.map((row) => row.map(escapeCsvField).join(",")),
+    ];
+
+    const csvContent = csvLines.join("\r\n");
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const fileName = `巡检摘要_${filters.trendAreaFilter}_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}.csv`;
+
+    link.setAttribute("href", url);
+    link.setAttribute("download", fileName);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleQuickAction = (action: string) => {
     switch (action) {
       case "createRecord":
@@ -1242,7 +1300,7 @@ function App() {
           ?.scrollIntoView({ behavior: "smooth" });
         break;
       case "exportReport":
-        alert("报表导出功能开发中...");
+        handleExportSummary();
         break;
       default:
         break;
