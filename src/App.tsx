@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import "./styles.css";
 import AnomalyTrendAnalysis from "./AnomalyTrendAnalysis";
+import RoleDashboard from "./RoleDashboard";
 
 type PlanStatus = "未开始" | "进行中" | "已完成";
 type CleanArea = "ISO 5" | "ISO 6" | "ISO 7" | "黄光区";
@@ -1249,6 +1250,39 @@ function App() {
     return inspectionRecords.map((r) => r.roomId);
   }, [inspectionRecords]);
 
+  const handleQuickAction = (action: string) => {
+    switch (action) {
+      case "createRecord":
+      case "scanQR":
+        document
+          .querySelector(".record-form-panel")
+          ?.scrollIntoView({ behavior: "smooth" });
+        break;
+      case "viewSchedule":
+      case "assignTask":
+        document
+          .querySelector(".plan-section")
+          ?.scrollIntoView({ behavior: "smooth" });
+        break;
+      case "createDeviceTicket":
+      case "viewDevices":
+        document
+          .querySelector(".ticket-section")
+          ?.scrollIntoView({ behavior: "smooth" });
+        break;
+      case "configureThreshold":
+        document
+          .querySelector(".threshold-panel")
+          ?.scrollIntoView({ behavior: "smooth" });
+        break;
+      case "exportReport":
+        alert("报表导出功能开发中...");
+        break;
+      default:
+        break;
+    }
+  };
+
   const metricValues = useMemo(() => {
     const results = sampleRecords.map((r) => checkAnomalies(r, thresholds));
     const particle = results.filter((r) => r.particle).length;
@@ -1285,6 +1319,8 @@ function App() {
           <strong>{project.stack}</strong>
         </div>
       </section>
+
+      <RoleDashboard onQuickAction={handleQuickAction} />
 
       <section className="metrics-grid">
         {project.metrics.map((metric: string, index: number) => (
