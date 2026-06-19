@@ -1,0 +1,51 @@
+{
+  "name": "半导体洁净室巡检系统",
+  "short_name": "洁净室巡检",
+  "description": "半导体洁净室离线巡检系统，支持巡检计划、现场录入、阈值判断、异常工单、本地持久化和数据导出",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f766e",
+  "orientation": "portrait",
+  "lang": "zh-CN",
+  "orientation": "any",
+  "categories": ["productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "快速录入",
+      "description": "快速录入巡检记录",
+      "short_name": "录入",
+      "url": "/?action=createRecord",
+      "icons": [{ "src": "/icons/shortcut-record.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "查看工单",
+      "description": "查看异常工单",
+      "short_name": "工单",
+      "url": "/?action=viewTickets",
+      "icons": [{ "src": "/icons/shortcut-ticket.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "巡检计划",
+      "description": "查看今日巡检计划",
+      "short_name": "计划",
+      "url": "/?action=viewSchedule",
+      "icons": [{ "src": "/icons/shortcut-plan.svg", "sizes": "96x96" }]
+    }
+  ]
+}
