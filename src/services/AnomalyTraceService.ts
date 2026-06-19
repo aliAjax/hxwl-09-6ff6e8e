@@ -460,6 +460,7 @@ export class AnomalyTraceService {
     thresholds: AreaThreshold[]
   ): boolean {
     const relatedTickets = this.getRelatedTicketsForTrace(tickets, trace);
+    if (relatedTickets.length === 0) return false;
     const allTicketsClosed = relatedTickets.every(
       (t) => t.status === "已关闭"
     );
