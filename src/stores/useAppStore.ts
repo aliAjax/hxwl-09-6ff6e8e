@@ -720,38 +720,27 @@ export function useAppStore(): UseAppStoreReturn {
   const linkRecordToPlan = useCallback(
     (planId: number, recordId: number) => {
       const plan = inspectionPlans.find((p) => p.id === planId);
+      if (!plan) return;
+      const linkedRecordIds = plan.linkedRecordIds ?? [];
+      if (linkedRecordIds.includes(recordId)) return;
+
+      const updated = {
+        ...plan,
+        linkedRecordIds: [...linkedRecordIds, recordId],
+        synced: false,
+      };
+
       setInspectionPlans((prev) =>
-        prev.map((p) => {
-          if (p.id !== planId) return p;
-          const linkedRecordIds = p.linkedRecordIds ?? [];
-          if (linkedRecordIds.includes(recordId)) return p;
-          const updated = {
-            ...p,
-            linkedRecordIds: [...linkedRecordIds, recordId],
-            synced: false,
-          };
-          appService
-            .enqueueEntity("inspectionPlan", updated, "update")
-            .catch((e) => console.error("入队计划关联记录失败:", e));
-          return updated;
-        })
+        prev.map((p) => (p.id === planId ? updated : p))
       );
+
       localDBRepository.addLinkedRecordToPlan(planId, recordId).catch((err) =>
         console.error("Failed to link record to plan:", err)
       );
-      if (plan) {
-        const linkedRecordIds = plan.linkedRecordIds ?? [];
-        if (!linkedRecordIds.includes(recordId)) {
-          const updated = {
-            ...plan,
-            linkedRecordIds: [...linkedRecordIds, recordId],
-            synced: false,
-          };
-          appService
-            .enqueueEntity("inspectionPlan", updated, "update")
-            .catch((e) => console.error("入队计划关联记录失败:", e));
-        }
-      }
+
+      appService
+        .enqueueEntity("inspectionPlan", updated, "update")
+        .catch((e) => console.error("入队计划关联记录失败:", e));
     },
     [setInspectionPlans, inspectionPlans]
   );

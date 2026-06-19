@@ -85,7 +85,10 @@ export class SyncService {
         String(snap.date ?? ""),
         String(snap.area ?? ""),
         String(snap.inspector ?? ""),
-        String(snap.status ?? "")
+        String(snap.status ?? ""),
+        Array.isArray(snap.linkedRecordIds)
+          ? snap.linkedRecordIds.sort((a: number, b: number) => a - b).join(",")
+          : ""
       );
     } else if (entityType === "anomalyTrace") {
       keyParts.push(
