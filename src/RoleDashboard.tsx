@@ -145,12 +145,14 @@ function InspectorView({
   tickets,
   roleColor,
   onAction,
+  inspector,
 }: {
   plans: InspectionPlan[];
   records: InspectionRecord[];
   tickets: AnomalyTicket[];
   roleColor: string;
   onAction: (action: string) => void;
+  inspector: string;
 }) {
   const priorityBadgeClass = (priority: string) => {
     const color = priorityColors[priority as keyof typeof priorityColors];
@@ -170,7 +172,8 @@ function InspectorView({
     };
   };
 
-  const pendingPlans = plans.filter((p) => p.status !== "已完成");
+  const myPlans = plans.filter((p) => p.role === "巡检员" && p.inspector === inspector);
+  const pendingPlans = myPlans.filter((p) => p.status !== "已完成");
   const recentAnomalyRecords = records
     .filter((r) => r.status === "异常")
     .slice(0, 5);
@@ -201,7 +204,6 @@ function InspectorView({
           ) : (
             pendingPlans.slice(0, 5).map((plan) => {
               const priority = getPriorityFromArea(plan.area);
-              const completedCount = (plan.linkedRecordIds ?? []).length;
               return (
                 <article key={plan.id} className="role-list-card">
                   <div
@@ -907,20 +909,41 @@ export default function RoleDashboard({
     }
   };
 
-  const metrics = useMemo(() => {
+  const currentInspector = useMemo(() => {
+    if (activeRole === "巡检员") {
+      const inspectorPlan = todayPlans.find((p) => p.role === "巡检员");
+      if (inspectorPlan) return inspectorPlan.inspector;
+    }
+    if (activeRole === "厂务工程师") {
+      const engineerPlan = todayPlans.find((p) => p.role === "厂务工程师");
+      if (engineerPlan) return engineerPlan.inspector;
+    }
+    if (activeRole === "班组长") {
+      const supervisorPlan = todayPlans.find((p) => p.role === "班组长");
+      if (supervisorPlan) return supervisorPlan.inspector;
+    }
+    return "当前用户";
+  }, [activeRole, todayPlans]);
+
+  const metrics = useMemo((): { label: string; value: string; status: "ok" | "warn" | "danger" }[] => {
     switch (activeRole) {
       case "巡检员": {
-        const pendingPlans = todayPlans.filter((p) => p.status !== "已完成");
-        const completedPlans = todayPlans.filter((p) => p.status === "已完成");
+        const myTodayPlans = todayPlans.filter(
+          (p) => p.role === "巡检员" && p.inspector === currentInspector
+        );
+        const pendingPlans = myTodayPlans.filter((p) => p.status !== "已完成");
+        const completedPlans = myTodayPlans.filter((p) => p.status === "已完成");
         const todayRecords = inspectionRecords.filter((r) =>
           r.createdAt.startsWith(new Date().toISOString().slice(0, 10))
         );
         const anomalyRecords = todayRecords.filter((r) => r.status === "异常");
+        const pendingStatus: "ok" | "warn" = pendingPlans.length > 3 ? "warn" : "ok";
+        const anomalyStatus: "ok" | "danger" = anomalyRecords.length > 0 ? "danger" : "ok";
         return [
-          { label: "待巡检计划", value: String(pendingPlans.length), status: pendingPlans.length > 3 ? "warn" : "ok" as const },
-          { label: "今日已完成", value: String(completedPlans.length), status: "ok" as const },
-          { label: "今日巡检记录", value: String(todayRecords.length), status: "ok" as const },
-          { label: "异常记录", value: String(anomalyRecords.length), status: anomalyRecords.length > 0 ? "danger" : "ok" as const },
+          { label: "待巡检计划", value: String(pendingPlans.length), status: pendingStatus },
+          { label: "今日已完成", value: String(completedPlans.length), status: "ok" },
+          { label: "今日巡检记录", value: String(todayRecords.length), status: "ok" },
+          { label: "异常记录", value: String(anomalyRecords.length), status: anomalyStatus },
         ];
       }
       case "厂务工程师": {
@@ -928,11 +951,13 @@ export default function RoleDashboard({
         const processingTickets = anomalyTickets.filter((t) => t.status === "处理中");
         const faultDevices = inspectionRecords.filter((r) => r.deviceStatus === "故障");
         const runningDevices = inspectionRecords.filter((r) => r.deviceStatus === "运行中");
+        const faultStatus: "ok" | "danger" = faultDevices.length > 0 ? "danger" : "ok";
+        const pendingStatus: "ok" | "warn" = pendingTickets.length > 3 ? "warn" : "ok";
         return [
-          { label: "运行设备", value: String(runningDevices.length), status: "ok" as const },
-          { label: "故障设备", value: String(faultDevices.length), status: faultDevices.length > 0 ? "danger" : "ok" as const },
-          { label: "待处理异常", value: String(pendingTickets.length), status: pendingTickets.length > 3 ? "warn" : "ok" as const },
-          { label: "处理中", value: String(processingTickets.length), status: "ok" as const },
+          { label: "运行设备", value: String(runningDevices.length), status: "ok" },
+          { label: "故障设备", value: String(faultDevices.length), status: faultStatus },
+          { label: "待处理异常", value: String(pendingTickets.length), status: pendingStatus },
+          { label: "处理中", value: String(processingTickets.length), status: "ok" },
         ];
       }
       case "班组长": {
@@ -940,17 +965,20 @@ export default function RoleDashboard({
         const completedPlans = inspectionPlans.filter((p) => p.status === "已完成").length;
         const openTickets = anomalyTickets.filter((t) => t.status !== "已关闭").length;
         const activeTraces = anomalyTraces.filter((t) => t.status !== "已恢复").length;
+        const openTicketStatus: "ok" | "warn" | "danger" =
+          openTickets > 5 ? "danger" : openTickets > 2 ? "warn" : "ok";
+        const traceStatus: "ok" | "warn" = activeTraces > 3 ? "warn" : "ok";
         return [
-          { label: "巡检计划总数", value: String(totalPlans), status: "ok" as const },
-          { label: "已完成计划", value: String(completedPlans), status: "ok" as const },
-          { label: "未关闭工单", value: String(openTickets), status: openTickets > 5 ? "danger" : openTickets > 2 ? "warn" : "ok" as const },
-          { label: "活跃追踪", value: String(activeTraces), status: activeTraces > 3 ? "warn" : "ok" as const },
+          { label: "巡检计划总数", value: String(totalPlans), status: "ok" },
+          { label: "已完成计划", value: String(completedPlans), status: "ok" },
+          { label: "未关闭工单", value: String(openTickets), status: openTicketStatus },
+          { label: "活跃追踪", value: String(activeTraces), status: traceStatus },
         ];
       }
       default:
         return [];
     }
-  }, [activeRole, todayPlans, inspectionRecords, anomalyTickets, inspectionPlans, anomalyTraces]);
+  }, [activeRole, todayPlans, inspectionRecords, anomalyTickets, inspectionPlans, anomalyTraces, currentInspector]);
 
   const quickActions = useMemo(() => {
     switch (activeRole) {
@@ -987,6 +1015,7 @@ export default function RoleDashboard({
             tickets={anomalyTickets}
             roleColor={roleColor}
             onAction={handleAction}
+            inspector={currentInspector}
           />
         );
       case "厂务工程师":
