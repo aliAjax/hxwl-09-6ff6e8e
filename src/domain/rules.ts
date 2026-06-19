@@ -9,6 +9,59 @@ import type {
   TicketAnomalyType,
 } from "./models";
 
+export interface ThresholdImpactPreview {
+  totalAffected: number;
+  stableToWatch: InspectionRecord[];
+  stableToDanger: InspectionRecord[];
+  watchToDanger: InspectionRecord[];
+  watchToStable: InspectionRecord[];
+  dangerToWatch: InspectionRecord[];
+  dangerToStable: InspectionRecord[];
+}
+
+export function calculateThresholdImpact(
+  originalThresholds: AreaThreshold[],
+  newThresholds: AreaThreshold[],
+  records: InspectionRecord[]
+): ThresholdImpactPreview {
+  const preview: ThresholdImpactPreview = {
+    totalAffected: 0,
+    stableToWatch: [],
+    stableToDanger: [],
+    watchToDanger: [],
+    watchToStable: [],
+    dangerToWatch: [],
+    dangerToStable: [],
+  };
+
+  records.forEach((record) => {
+    const originalAnomalies = checkAnomalies(record, originalThresholds);
+    const originalStatus = getRecordStatus(originalAnomalies).label;
+
+    const newAnomalies = checkAnomalies(record, newThresholds);
+    const newStatus = getRecordStatus(newAnomalies).label;
+
+    if (originalStatus === newStatus) return;
+
+    preview.totalAffected++;
+    if (originalStatus === "稳定" && newStatus === "关注") {
+      preview.stableToWatch.push(record);
+    } else if (originalStatus === "稳定" && newStatus === "异常") {
+      preview.stableToDanger.push(record);
+    } else if (originalStatus === "关注" && newStatus === "异常") {
+      preview.watchToDanger.push(record);
+    } else if (originalStatus === "关注" && newStatus === "稳定") {
+      preview.watchToStable.push(record);
+    } else if (originalStatus === "异常" && newStatus === "关注") {
+      preview.dangerToWatch.push(record);
+    } else if (originalStatus === "异常" && newStatus === "稳定") {
+      preview.dangerToStable.push(record);
+    }
+  });
+
+  return preview;
+}
+
 export interface Readings {
   area: CleanArea;
   particle05um: number;

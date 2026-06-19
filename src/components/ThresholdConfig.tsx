@@ -1,16 +1,38 @@
-import { useState } from "react";
-import type { AreaThreshold, CleanArea, ThresholdRange } from "../domain";
+import { useMemo, useState } from "react";
+import type { AreaThreshold, CleanArea, InspectionRecord, ThresholdRange } from "../domain";
+import { calculateThresholdImpact, type ThresholdImpactPreview } from "../domain/rules";
 
 const planAreas = ["ISO 5", "ISO 6", "ISO 7", "黄光区"] as const;
 
 interface ThresholdConfigProps {
   thresholds: AreaThreshold[];
+  inspectionRecords: InspectionRecord[];
   onUpdate: (thresholds: AreaThreshold[]) => void;
 }
 
-function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
+function ThresholdConfig({ thresholds, inspectionRecords, onUpdate }: ThresholdConfigProps) {
   const [editingArea, setEditingArea] = useState<CleanArea | null>(null);
   const [draft, setDraft] = useState<AreaThreshold | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const newThresholds = useMemo(() => {
+    if (!draft) return thresholds;
+    return thresholds.map((t) => (t.area === draft.area ? draft : t));
+  }, [draft, thresholds]);
+
+  const impactPreview = useMemo((): ThresholdImpactPreview | null => {
+    if (!draft) return null;
+    return calculateThresholdImpact(thresholds, newThresholds, inspectionRecords);
+  }, [draft, thresholds, newThresholds, inspectionRecords]);
+
+  const hasNegativeImpact = useMemo(() => {
+    if (!impactPreview) return false;
+    return (
+      impactPreview.stableToWatch.length > 0 ||
+      impactPreview.stableToDanger.length > 0 ||
+      impactPreview.watchToDanger.length > 0
+    );
+  }, [impactPreview]);
 
   const startEdit = (area: CleanArea) => {
     const current = thresholds.find((t) => t.area === area);
@@ -23,13 +45,24 @@ function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
   const cancelEdit = () => {
     setEditingArea(null);
     setDraft(null);
+    setShowPreview(false);
   };
 
-  const saveEdit = () => {
+  const handlePreviewSave = () => {
     if (!draft) return;
-    onUpdate(thresholds.map((t) => (t.area === draft.area ? draft : t)));
+    setShowPreview(true);
+  };
+
+  const confirmSave = () => {
+    if (!draft) return;
+    onUpdate(newThresholds);
     setEditingArea(null);
     setDraft(null);
+    setShowPreview(false);
+  };
+
+  const backToEdit = () => {
+    setShowPreview(false);
   };
 
   const updateDraftField = (field: keyof AreaThreshold, value: number | ThresholdRange, subKey?: "min" | "max") => {
@@ -102,7 +135,7 @@ function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
         </table>
       </div>
 
-      {editingArea && draft && (
+      {editingArea && draft && !showPreview && (
         <div className="threshold-edit-overlay" onClick={cancelEdit}>
           <div className="threshold-edit-modal" onClick={(e) => e.stopPropagation()}>
             <div className="section-heading">
@@ -196,8 +229,163 @@ function ThresholdConfig({ thresholds, onUpdate }: ThresholdConfigProps) {
 
             <div className="threshold-edit-actions">
               <button onClick={cancelEdit}>取消</button>
-              <button className="primary-action" onClick={saveEdit}>
-                保存配置
+              <button className="primary-action" onClick={handlePreviewSave}>
+                预览影响并保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingArea && draft && showPreview && impactPreview && (
+        <div className="threshold-edit-overlay" onClick={cancelEdit}>
+          <div className="threshold-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="section-heading">
+              <div>
+                <p>阈值变更影响预览</p>
+                <h2>{draft.area}</h2>
+              </div>
+            </div>
+
+            <div className="threshold-preview-summary">
+              <div className={`preview-summary-total ${hasNegativeImpact ? "warning" : "ok"}`}>
+                <span className="preview-summary-label">受影响房间总数</span>
+                <span className="preview-summary-value">{impactPreview.totalAffected}</span>
+              </div>
+            </div>
+
+            {impactPreview.totalAffected > 0 ? (
+              <div className="threshold-preview-groups">
+                {(impactPreview.stableToWatch.length > 0 ||
+                  impactPreview.stableToDanger.length > 0 ||
+                  impactPreview.watchToDanger.length > 0) && (
+                  <div className="preview-group negative">
+                    <h4 className="preview-group-title">
+                      <span className="preview-group-icon">⚠</span>
+                      状态变差
+                    </h4>
+                    <div className="preview-group-list">
+                      {impactPreview.stableToWatch.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag ok">稳定</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag watch">关注</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.stableToWatch.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.stableToWatch.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {impactPreview.stableToDanger.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag ok">稳定</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag danger">异常</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.stableToDanger.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.stableToDanger.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {impactPreview.watchToDanger.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag watch">关注</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag danger">异常</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.watchToDanger.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.watchToDanger.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {(impactPreview.watchToStable.length > 0 ||
+                  impactPreview.dangerToWatch.length > 0 ||
+                  impactPreview.dangerToStable.length > 0) && (
+                  <div className="preview-group positive">
+                    <h4 className="preview-group-title">
+                      <span className="preview-group-icon">✓</span>
+                      状态变好
+                    </h4>
+                    <div className="preview-group-list">
+                      {impactPreview.watchToStable.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag watch">关注</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag ok">稳定</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.watchToStable.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.watchToStable.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {impactPreview.dangerToWatch.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag danger">异常</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag watch">关注</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.dangerToWatch.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.dangerToWatch.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {impactPreview.dangerToStable.length > 0 && (
+                        <div className="preview-group-item">
+                          <span className="status-transition">
+                            <span className="status-tag danger">异常</span>
+                            <span className="transition-arrow">→</span>
+                            <span className="status-tag ok">稳定</span>
+                          </span>
+                          <span className="preview-count">{impactPreview.dangerToStable.length} 个房间</span>
+                          <div className="preview-rooms">
+                            {impactPreview.dangerToStable.map((r) => (
+                              <span key={r.id} className="preview-room-tag">{r.roomId}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="threshold-preview-empty">
+                <div className="preview-empty-icon">✓</div>
+                <p>本次阈值调整不会影响现有巡检记录的状态判定</p>
+              </div>
+            )}
+
+            <div className="threshold-edit-actions">
+              <button onClick={backToEdit}>返回修改</button>
+              <button
+                className={hasNegativeImpact ? "danger-action" : "primary-action"}
+                onClick={confirmSave}
+              >
+                {hasNegativeImpact ? "确认保存（存在负面影响）" : "确认保存"}
               </button>
             </div>
           </div>

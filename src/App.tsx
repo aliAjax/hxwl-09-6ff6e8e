@@ -338,7 +338,11 @@ function App() {
         onClearExternalRecord={() => setTraceEntryRecord(null)}
       />
 
-      <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />
+      <ThresholdConfig
+        thresholds={thresholds}
+        inspectionRecords={inspectionRecords}
+        onUpdate={setThresholds}
+      />
 
       <PreviewTable
         thresholds={thresholds}
