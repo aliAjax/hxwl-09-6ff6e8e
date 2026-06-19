@@ -48,6 +48,8 @@ interface RoleDashboardProps {
   onQuickAction?: (action: string) => void;
   activeRole: RoleType;
   onRoleChange: (role: RoleType) => void;
+  activeInspector: string;
+  onInspectorChange: (inspector: string) => void;
   inspectionPlans: InspectionPlan[];
   inspectionRecords: InspectionRecord[];
   anomalyTickets: AnomalyTicket[];
@@ -879,6 +881,8 @@ export default function RoleDashboard({
   onQuickAction,
   activeRole,
   onRoleChange,
+  activeInspector,
+  onInspectorChange,
   inspectionPlans,
   inspectionRecords,
   anomalyTickets,
@@ -909,21 +913,20 @@ export default function RoleDashboard({
     }
   };
 
-  const currentInspector = useMemo(() => {
-    if (activeRole === "巡检员") {
-      const inspectorPlan = todayPlans.find((p) => p.role === "巡检员");
-      if (inspectorPlan) return inspectorPlan.inspector;
-    }
-    if (activeRole === "厂务工程师") {
-      const engineerPlan = todayPlans.find((p) => p.role === "厂务工程师");
-      if (engineerPlan) return engineerPlan.inspector;
-    }
-    if (activeRole === "班组长") {
-      const supervisorPlan = todayPlans.find((p) => p.role === "班组长");
-      if (supervisorPlan) return supervisorPlan.inspector;
-    }
-    return "当前用户";
-  }, [activeRole, todayPlans]);
+  const inspectorOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        todayPlans
+          .filter((p) => p.role === "巡检员" && p.inspector.trim())
+          .map((p) => p.inspector)
+      )
+    );
+  }, [todayPlans]);
+
+  const currentInspector =
+    inspectorOptions.includes(activeInspector)
+      ? activeInspector
+      : inspectorOptions[0] ?? activeInspector;
 
   const metrics = useMemo((): { label: string; value: string; status: "ok" | "warn" | "danger" }[] => {
     switch (activeRole) {
@@ -1057,6 +1060,21 @@ export default function RoleDashboard({
           <p className="role-subtitle">
             根据您的角色，以下是今日需要关注的重点内容
           </p>
+          {activeRole === "巡检员" && inspectorOptions.length > 0 && (
+            <label className="role-person-select">
+              <span>当前巡检员</span>
+              <select
+                value={currentInspector}
+                onChange={(event) => onInspectorChange(event.target.value)}
+              >
+                {inspectorOptions.map((inspector) => (
+                  <option key={inspector} value={inspector}>
+                    {inspector}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="role-switcher">
           {roles.map((role) => (

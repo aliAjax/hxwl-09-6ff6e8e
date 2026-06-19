@@ -234,6 +234,10 @@ function App() {
     setFilters({ ...filters, activeRole: role });
   };
 
+  const handleInspectorChange = (inspector: string) => {
+    setFilters({ ...filters, activeInspector: inspector });
+  };
+
   const handleConfirmClear = async () => {
     await clearLocalData();
     setShowClearConfirm(false);
@@ -374,6 +378,8 @@ function App() {
         onQuickAction={handleQuickAction}
         activeRole={filters.activeRole}
         onRoleChange={handleRoleChange}
+        activeInspector={filters.activeInspector}
+        onInspectorChange={handleInspectorChange}
         inspectionPlans={inspectionPlans}
         inspectionRecords={inspectionRecords}
         anomalyTickets={anomalyTickets}

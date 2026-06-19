@@ -271,6 +271,7 @@ function backfillFilterConditions(
     trendTypeFilter:
       data?.trendTypeFilter ?? DEFAULT_FILTERS.trendTypeFilter,
     activeRole: data?.activeRole ?? DEFAULT_FILTERS.activeRole,
+    activeInspector: data?.activeInspector ?? DEFAULT_FILTERS.activeInspector,
   };
 }
 

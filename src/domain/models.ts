@@ -157,6 +157,7 @@ export interface FilterConditions {
   trendAreaFilter: CleanArea | "全部";
   trendTypeFilter: TrendAnomalyType;
   activeRole: RoleType;
+  activeInspector: string;
 }
 
 export interface AnomalyCheckResult {

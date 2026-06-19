@@ -226,6 +226,7 @@ function backfillFilterConditions(
     trendTypeFilter:
       data?.trendTypeFilter ?? defaultFilters.trendTypeFilter,
     activeRole: data?.activeRole ?? defaultFilters.activeRole,
+    activeInspector: data?.activeInspector ?? defaultFilters.activeInspector,
   };
 }
 

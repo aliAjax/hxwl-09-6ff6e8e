@@ -2025,6 +2025,26 @@ input {
   margin-bottom: 0;
 }
 
+.role-person-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: #526070;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.role-person-select select {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  padding: 4px 28px 4px 10px;
+}
+
 .role-switcher {
   display: flex;
   gap: 8px;
@@ -4865,4 +4885,3 @@ input {
 }
 
 /* ========== End Anomaly Trace Module ========== */
-

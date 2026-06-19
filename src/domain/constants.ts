@@ -188,6 +188,7 @@ export const DEFAULT_FILTERS: FilterConditions = {
   trendAreaFilter: "全部",
   trendTypeFilter: "粒子异常",
   activeRole: "巡检员",
+  activeInspector: "张伟",
 };
 
 export const ROOT_CAUSE_CATEGORIES: RootCauseCategory[] = [
@@ -339,4 +340,3 @@ export const DEFAULT_TRACES: AnomalyTrace[] = [
     synced: true,
   },
 ];
-

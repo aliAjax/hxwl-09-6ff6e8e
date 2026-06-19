@@ -49,6 +49,7 @@ function usePersistence(): UsePersistenceReturn {
     trendAreaFilter: "全部",
     trendTypeFilter: "粒子异常",
     activeRole: "巡检员",
+    activeInspector: "张伟",
   });
   const [isLoading, setIsLoading] = useState(true);
   const [wasInitialized, setWasInitialized] = useState(false);
