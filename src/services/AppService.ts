@@ -5,6 +5,10 @@ import type {
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
+  SyncAction,
+  SyncEntityType,
+  SyncQueueDetailedStatus,
+  SyncQueueItem,
   SyncStatus,
 } from "../domain/models";
 import type { AppRepository, RemoteSyncRepository, SyncResult } from "../repositories";
@@ -25,6 +29,7 @@ export interface AppState {
   inspectionPlans: InspectionPlan[];
   filters: FilterConditions;
   syncStatus: SyncStatus;
+  syncQueue: SyncQueueItem[];
   isLoading: boolean;
 }
 
@@ -106,5 +111,52 @@ export class AppService {
 
   async pushPending(): Promise<SyncResult> {
     return this.sync.pushPending();
+  }
+
+  async getSyncQueue(): Promise<SyncQueueItem[]> {
+    return this.sync.getQueue();
+  }
+
+  async getDetailedQueueStatus(): Promise<SyncQueueDetailedStatus> {
+    return this.sync.getDetailedQueueStatus();
+  }
+
+  async enqueueEntity(
+    entityType: SyncEntityType,
+    entity: any,
+    action: SyncAction = "update"
+  ): Promise<SyncQueueItem | null> {
+    return this.sync.enqueueEntity(entityType, entity, action);
+  }
+
+  async processQueue(
+    scope: "all" | "pending" | "failed" = "all",
+    itemIds?: number[]
+  ): Promise<SyncResult> {
+    return this.sync.processQueue(scope, itemIds);
+  }
+
+  async retryQueueItem(itemId: number): Promise<SyncResult> {
+    return this.sync.retryItem(itemId);
+  }
+
+  async retryAllFailed(): Promise<SyncResult> {
+    return this.sync.retryAllFailed();
+  }
+
+  async removeQueueItem(itemId: number): Promise<void> {
+    return this.sync.removeQueueItem(itemId);
+  }
+
+  async clearSyncedQueueItems(): Promise<void> {
+    return this.sync.clearSyncedItems();
+  }
+
+  async migrateUnsyncedToQueue(): Promise<number> {
+    return this.sync.migrateUnsyncedToQueue();
+  }
+
+  onQueueChange(callback: () => void): () => void {
+    return this.sync.onQueueChange(callback);
   }
 }

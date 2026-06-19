@@ -16,6 +16,7 @@ import type {
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
+  SyncQueueItem,
   TicketStatus,
 } from "../domain/models";
 import type { AppRepository } from "./types";
@@ -100,6 +101,20 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("status", "status", { unique: false });
           store.createIndex("anomalyType", "anomalyType", { unique: false });
           store.createIndex("firstOccurredAt", "firstOccurredAt", { unique: false });
+        }
+      }
+
+      if (oldVersion < 4) {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.syncQueue)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.syncQueue, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("entityType", "entityType", { unique: false });
+          store.createIndex("entityId", "entityId", { unique: false });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("createdAt", "createdAt", { unique: false });
+          store.createIndex("syncFingerprint", "syncFingerprint", { unique: false });
         }
       }
     };
@@ -290,6 +305,25 @@ function backfillAnomalyTrace(
     },
     canClose: data.canClose ?? false,
     synced: data.synced ?? false,
+  };
+}
+
+function backfillSyncQueueItem(
+  data: Partial<SyncQueueItem> & { id: number }
+): SyncQueueItem {
+  return {
+    id: data.id,
+    entityType: (data.entityType as SyncQueueItem["entityType"]) ?? "inspectionRecord",
+    entityId: data.entityId ?? 0,
+    action: (data.action as SyncQueueItem["action"]) ?? "create",
+    status: (data.status as SyncQueueItem["status"]) ?? "pending",
+    errorMessage: data.errorMessage,
+    retryCount: data.retryCount ?? 0,
+    createdAt: data.createdAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    lastAttemptAt: data.lastAttemptAt,
+    syncedAt: data.syncedAt,
+    dataSnapshot: data.dataSnapshot as any,
+    syncFingerprint: data.syncFingerprint ?? "",
   };
 }
 
@@ -554,6 +588,77 @@ export class LocalDBRepository implements AppRepository {
     );
   }
 
+  async getSyncQueue(): Promise<SyncQueueItem[]> {
+    return withStore(DB_STORE_NAMES.syncQueue, "readonly", async (store) => {
+      const results = await promisifyRequest<SyncQueueItem[]>(
+        store.getAll() as IDBRequest<SyncQueueItem[]>
+      );
+      return results
+        .map((r) =>
+          backfillSyncQueueItem(
+            r as Partial<SyncQueueItem> & { id: number }
+          )
+        )
+        .sort((a, b) => {
+          if (!a.createdAt && !b.createdAt) return 0;
+          if (!a.createdAt) return 1;
+          if (!b.createdAt) return -1;
+          return a.createdAt.localeCompare(b.createdAt);
+        });
+    });
+  }
+
+  async saveSyncQueueItem(item: SyncQueueItem): Promise<void> {
+    await withStore(DB_STORE_NAMES.syncQueue, "readwrite", (store) => {
+      return promisifyRequest(store.put(item));
+    });
+  }
+
+  async saveAllSyncQueueItems(items: SyncQueueItem[]): Promise<void> {
+    return withStore(DB_STORE_NAMES.syncQueue, "readwrite", async (store) => {
+      await promisifyRequest(store.clear());
+      for (const item of items) {
+        await promisifyRequest(store.put(item));
+      }
+    });
+  }
+
+  async updateSyncQueueItem(item: SyncQueueItem): Promise<void> {
+    await withStore(DB_STORE_NAMES.syncQueue, "readwrite", async (store) => {
+      const existing = await promisifyRequest(
+        store.get(item.id) as IDBRequest<SyncQueueItem>
+      );
+      if (existing) {
+        await promisifyRequest(store.put(item));
+      }
+    });
+  }
+
+  async removeSyncQueueItem(id: number): Promise<void> {
+    await withStore(DB_STORE_NAMES.syncQueue, "readwrite", (store) => {
+      return promisifyRequest(store.delete(id));
+    });
+  }
+
+  async clearSyncedQueueItems(): Promise<void> {
+    return withStore(DB_STORE_NAMES.syncQueue, "readwrite", async (store) => {
+      const items = await promisifyRequest<SyncQueueItem[]>(
+        store.getAll() as IDBRequest<SyncQueueItem[]>
+      );
+      for (const item of items) {
+        if (item.status === "synced") {
+          await promisifyRequest(store.delete(item.id));
+        }
+      }
+    });
+  }
+
+  async getNextSyncQueueId(): Promise<number> {
+    const queue = await this.getSyncQueue();
+    if (queue.length === 0) return 1;
+    return Math.max(...queue.map((i) => i.id)) + 1;
+  }
+
   async getFilters(): Promise<FilterConditions> {
     return withStore(DB_STORE_NAMES.filters, "readonly", async (store) => {
       const result = await promisifyRequest(
@@ -570,19 +675,21 @@ export class LocalDBRepository implements AppRepository {
   }
 
   async isEmpty(): Promise<boolean> {
-    const [thresholds, records, tickets, plans, traces] = await Promise.all([
+    const [thresholds, records, tickets, plans, traces, queue] = await Promise.all([
       this.getThresholds(),
       this.getInspectionRecords(),
       this.getAnomalyTickets(),
       this.getInspectionPlans(),
       this.getAnomalyTraces(),
+      this.getSyncQueue(),
     ]);
     return (
       thresholds.length === 0 &&
       records.length === 0 &&
       tickets.length === 0 &&
       plans.length === 0 &&
-      traces.length === 0
+      traces.length === 0 &&
+      queue.length === 0
     );
   }
 
@@ -594,6 +701,7 @@ export class LocalDBRepository implements AppRepository {
       this.saveAllAnomalyTraces(DEFAULT_TRACES),
       this.saveAllInspectionPlans(DEFAULT_PLANS),
       this.saveFilters(DEFAULT_FILTERS),
+      this.saveAllSyncQueueItems([]),
     ]);
   }
 
@@ -637,7 +745,7 @@ export class LocalDBRepository implements AppRepository {
       await this.seedDefaults();
     }
 
-    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters] =
+    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters, syncQueue] =
       await Promise.all([
         this.getThresholds(),
         this.getInspectionRecords(),
@@ -645,6 +753,7 @@ export class LocalDBRepository implements AppRepository {
         this.getAnomalyTraces(),
         this.getInspectionPlans(),
         this.getFilters(),
+        this.getSyncQueue(),
       ]);
 
     const orderedThresholds = DEFAULT_THRESHOLDS.map(
@@ -661,6 +770,7 @@ export class LocalDBRepository implements AppRepository {
       anomalyTraces,
       inspectionPlans,
       filters,
+      syncQueue,
       wasEmpty: empty,
     };
   }

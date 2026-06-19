@@ -68,6 +68,7 @@ function App() {
     inspectionPlans,
     filters,
     syncStatus,
+    syncQueue,
     isLoading,
     isOnline,
     anomalyTraces,
@@ -91,6 +92,11 @@ function App() {
     resetToSampleData,
     clearLocalData,
     syncPending,
+    processQueue,
+    retryQueueItem,
+    retryAllFailed,
+    removeQueueItem,
+    clearSyncedQueueItems,
     getTracesForRoom,
     getRecordsForRoom,
     getTicketsForTrace,
@@ -239,12 +245,25 @@ function App() {
   };
 
   const handleSyncNow = async () => {
-    const result = await syncPending();
-    const msg = result.errors.length > 0
-      ? result.errors.join("；")
-      : `同步完成：记录 ${result.syncedRecords}、工单 ${result.syncedTickets}、计划 ${result.syncedPlans}`;
+    const result = await processQueue("all");
+    const parts: string[] = [];
+    if (result.syncedRecords > 0) parts.push(`记录 ${result.syncedRecords}`);
+    if (result.syncedTickets > 0) parts.push(`工单 ${result.syncedTickets}`);
+    if (result.syncedPlans > 0) parts.push(`计划 ${result.syncedPlans}`);
+    if (result.syncedTraces > 0) parts.push(`追踪 ${result.syncedTraces}`);
+
+    let msg: string;
+    if (result.errors.length > 0) {
+      const failedCount = result.detailedResults.filter((r) => !r.success).length;
+      const successPart = parts.length > 0 ? `成功：${parts.join("、")}；` : "";
+      msg = `${successPart}${failedCount > 0 ? `${failedCount} 项失败：` : ""}${result.errors.slice(0, 2).join("；")}${result.errors.length > 2 ? "..." : ""}`;
+    } else if (parts.length > 0) {
+      msg = `同步完成：${parts.join("、")}`;
+    } else {
+      msg = "没有需要同步的项目";
+    }
     setSyncMessage(msg);
-    setTimeout(() => setSyncMessage(""), 3500);
+    setTimeout(() => setSyncMessage(""), 4500);
   };
 
   const handleViewTraceFromRecord = (record: any, anomalyType: TicketAnomalyType) => {
@@ -304,7 +323,16 @@ function App() {
 
   return (
     <main className="app-shell">
-      <SyncStatusBar syncStatus={syncStatus} onSyncNow={handleSyncNow} />
+      <SyncStatusBar
+        syncStatus={syncStatus}
+        syncQueue={syncQueue}
+        onSyncNow={handleSyncNow}
+        onProcessQueue={processQueue}
+        onRetryFailed={retryAllFailed}
+        onRetryItem={retryQueueItem}
+        onRemoveItem={removeQueueItem}
+        onClearSynced={clearSyncedQueueItems}
+      />
       {syncMessage && <div className="sync-message">{syncMessage}</div>}
 
       <section className="hero">

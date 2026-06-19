@@ -6,6 +6,9 @@ import type {
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
+  SyncQueueItem,
+  SyncEntityType,
+  SyncItemResult,
   TicketStatus,
   TraceStatus,
 } from "../domain";
@@ -36,6 +39,14 @@ export interface AppRepository {
   getFilters(): Promise<FilterConditions>;
   saveFilters(filters: FilterConditions): Promise<void>;
 
+  getSyncQueue(): Promise<SyncQueueItem[]>;
+  saveSyncQueueItem(item: SyncQueueItem): Promise<void>;
+  saveAllSyncQueueItems(items: SyncQueueItem[]): Promise<void>;
+  updateSyncQueueItem(item: SyncQueueItem): Promise<void>;
+  removeSyncQueueItem(id: number): Promise<void>;
+  clearSyncedQueueItems(): Promise<void>;
+  getNextSyncQueueId(): Promise<number>;
+
   isEmpty(): Promise<boolean>;
   seedDefaults(): Promise<void>;
   clearAll(): Promise<void>;
@@ -46,6 +57,7 @@ export interface AppRepository {
     anomalyTraces: AnomalyTrace[];
     inspectionPlans: InspectionPlan[];
     filters: FilterConditions;
+    syncQueue: SyncQueueItem[];
     wasEmpty: boolean;
   }>;
 }
@@ -54,13 +66,21 @@ export interface SyncResult {
   syncedRecords: number;
   syncedTickets: number;
   syncedPlans: number;
+  syncedTraces: number;
   errors: string[];
+  detailedResults: Array<{
+    entityType: SyncEntityType;
+    entityId: number;
+    success: boolean;
+    errorMessage?: string;
+  }>;
 }
 
 export interface RemoteSyncRepository {
-  pushRecord(record: InspectionRecord): Promise<boolean>;
-  pushTicket(ticket: AnomalyTicket): Promise<boolean>;
-  pushPlan(plan: InspectionPlan): Promise<boolean>;
+  pushRecord(record: InspectionRecord): Promise<SyncItemResult>;
+  pushTicket(ticket: AnomalyTicket): Promise<SyncItemResult>;
+  pushPlan(plan: InspectionPlan): Promise<SyncItemResult>;
+  pushTrace(trace: AnomalyTrace): Promise<SyncItemResult>;
   pullThresholds(): Promise<AreaThreshold[] | null>;
   pullPlans(): Promise<InspectionPlan[] | null>;
   syncAll(

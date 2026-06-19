@@ -176,8 +176,46 @@ export interface SyncStatus {
   pendingRecords: number;
   pendingTickets: number;
   pendingPlans: number;
+  failedRecords: number;
+  failedTickets: number;
+  failedPlans: number;
   isOnline: boolean;
   lastSyncAt?: string;
+  queueTotal: number;
+  queuePending: number;
+  queueFailed: number;
+}
+
+export type SyncEntityType = "inspectionRecord" | "anomalyTicket" | "inspectionPlan" | "anomalyTrace";
+export type SyncItemStatus = "pending" | "syncing" | "failed" | "synced";
+export type SyncAction = "create" | "update";
+
+export interface SyncQueueItem {
+  id: number;
+  entityType: SyncEntityType;
+  entityId: number;
+  action: SyncAction;
+  status: SyncItemStatus;
+  errorMessage?: string;
+  retryCount: number;
+  createdAt: string;
+  lastAttemptAt?: string;
+  syncedAt?: string;
+  dataSnapshot: InspectionRecord | AnomalyTicket | InspectionPlan | AnomalyTrace;
+  syncFingerprint: string;
+}
+
+export interface SyncQueueDetailedStatus {
+  pending: number;
+  syncing: number;
+  failed: number;
+  synced: number;
+  queue: SyncQueueItem[];
+}
+
+export interface SyncItemResult {
+  success: boolean;
+  errorMessage?: string;
 }
 
 export interface DBSchema {
@@ -187,6 +225,7 @@ export interface DBSchema {
   inspectionPlans: InspectionPlan[];
   filters: FilterConditions;
   anomalyTraces: AnomalyTrace[];
+  syncQueue: SyncQueueItem[];
 }
 
 export type DBStoreName = keyof DBSchema;
