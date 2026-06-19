@@ -1,13 +1,19 @@
 import { useMemo } from "react";
 import {
-  generateAnomalyTrendData,
-  anomalyTypes,
-  areaFilters,
+  calculateAllTrendData,
   anomalyTypeColors,
+  areaFilters,
+  trendAnomalyTypes,
   type AnomalyTrendData,
   type TrendDataPoint,
-} from "./mockData";
-import type { CleanArea, TrendAnomalyType } from "./db";
+} from "./services/TrendAnalysisService";
+import type {
+  AnomalyTicket,
+  AreaThreshold,
+  CleanArea,
+  InspectionRecord,
+  TrendAnomalyType,
+} from "./domain";
 
 function TrendChart({
   data,
@@ -204,6 +210,9 @@ interface AnomalyTrendAnalysisProps {
   selectedType: TrendAnomalyType;
   onAreaChange: (area: CleanArea | "全部") => void;
   onTypeChange: (type: TrendAnomalyType) => void;
+  inspectionRecords: InspectionRecord[];
+  anomalyTickets: AnomalyTicket[];
+  thresholds: AreaThreshold[];
 }
 
 function AnomalyTrendAnalysis({
@@ -211,14 +220,31 @@ function AnomalyTrendAnalysis({
   selectedType,
   onAreaChange,
   onTypeChange,
+  inspectionRecords,
+  anomalyTickets,
+  thresholds,
 }: AnomalyTrendAnalysisProps) {
 
+  const allTrendDataMap = useMemo(() => {
+    return calculateAllTrendData(
+      inspectionRecords,
+      anomalyTickets,
+      thresholds,
+      selectedArea,
+      7
+    );
+  }, [inspectionRecords, anomalyTickets, thresholds, selectedArea]);
+
   const allTrendData = useMemo(() => {
-    return anomalyTypes.map((type) => ({
+    return trendAnomalyTypes.map((type) => ({
       type,
-      data: generateAnomalyTrendData(selectedArea, type, 7),
+      data: allTrendDataMap[type],
     }));
-  }, [selectedArea]);
+  }, [allTrendDataMap]);
+
+  const hasAnyData = useMemo(() => {
+    return allTrendData.some((t) => t.data.hasData);
+  }, [allTrendData]);
 
   const currentTrendData = useMemo(() => {
     return allTrendData.find((t) => t.type === selectedType)
@@ -240,7 +266,7 @@ function AnomalyTrendAnalysis({
           <p>数据分析</p>
           <h2>异常趋势分析</h2>
         </div>
-        <div className="trend-hint">近7天数据趋势 · 模拟数据</div>
+        <div className="trend-hint">近7天数据趋势 · 基于本地巡检记录</div>
       </div>
 
       <div className="trend-filters">
@@ -262,7 +288,7 @@ function AnomalyTrendAnalysis({
         <div className="trend-filter-group">
           <span className="trend-filter-label">异常类型</span>
           <div className="chips">
-            {anomalyTypes.map((type) => (
+            {trendAnomalyTypes.map((type) => (
               <button
                 key={type}
                 className={selectedType === type ? "chip-active" : ""}
@@ -279,94 +305,108 @@ function AnomalyTrendAnalysis({
         </div>
       </div>
 
-      <div className="trend-metrics-grid">
-        {allTrendData.map(({ type, data }) => (
-          <SummaryMetricCard
-            key={type}
-            label={type}
-            value={data.summary.current}
-            subValue={formatChangePercent(
-              data.summary.changePercent,
-              data.summary.trend
-            )}
-            trend={data.summary.trend}
-            color={anomalyTypeColors[type]}
-          />
-        ))}
-      </div>
+      {hasAnyData ? (
+        <>
+          <div className="trend-metrics-grid">
+            {allTrendData.map(({ type, data }) => (
+              <SummaryMetricCard
+                key={type}
+                label={type}
+                value={data.summary.current}
+                subValue={formatChangePercent(
+                  data.summary.changePercent,
+                  data.summary.trend
+                )}
+                trend={data.summary.trend}
+                color={anomalyTypeColors[type]}
+              />
+            ))}
+          </div>
 
-      <div className="trend-chart-section">
-        <div className="trend-chart-header">
-          <div>
-            <h3 className="trend-chart-title">
-              {selectedArea === "全部" ? "全区域" : selectedArea} · {selectedType}趋势
-            </h3>
-            <p className="trend-chart-subtitle">近7天每日{selectedType}数量变化</p>
+          <div className="trend-chart-section">
+            <div className="trend-chart-header">
+              <div>
+                <h3 className="trend-chart-title">
+                  {selectedArea === "全部" ? "全区域" : selectedArea} · {selectedType}趋势
+                </h3>
+                <p className="trend-chart-subtitle">近7天每日{selectedType}数量变化</p>
+              </div>
+              <div className="trend-chart-summary">
+                <div className="trend-summary-item">
+                  <span className="trend-summary-label">最高</span>
+                  <strong style={{ color: chartColor }}>
+                    {currentTrendData.summary.max}
+                  </strong>
+                </div>
+                <div className="trend-summary-item">
+                  <span className="trend-summary-label">最低</span>
+                  <strong style={{ color: "#64748b" }}>
+                    {currentTrendData.summary.min}
+                  </strong>
+                </div>
+                <div className="trend-summary-item">
+                  <span className="trend-summary-label">平均</span>
+                  <strong style={{ color: "#0f766e" }}>
+                    {currentTrendData.summary.avg}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <TrendChart data={currentTrendData.data} color={chartColor} />
           </div>
-          <div className="trend-chart-summary">
-            <div className="trend-summary-item">
-              <span className="trend-summary-label">最高</span>
-              <strong style={{ color: chartColor }}>
-                {currentTrendData.summary.max}
-              </strong>
-            </div>
-            <div className="trend-summary-item">
-              <span className="trend-summary-label">最低</span>
-              <strong style={{ color: "#64748b" }}>
-                {currentTrendData.summary.min}
-              </strong>
-            </div>
-            <div className="trend-summary-item">
-              <span className="trend-summary-label">平均</span>
-              <strong style={{ color: "#0f766e" }}>
-                {currentTrendData.summary.avg}
-              </strong>
+
+          <div className="trend-insights">
+            <h4 className="trend-insights-title">数据洞察</h4>
+            <div className="trend-insights-grid">
+              <div className="trend-insight-card">
+                <div className="trend-insight-dot" style={{ background: chartColor }} />
+                <div>
+                  <p className="trend-insight-label">当前趋势</p>
+                  <p className="trend-insight-value">
+                    {currentTrendData.summary.trend === "up" && "呈上升趋势，需重点关注"}
+                    {currentTrendData.summary.trend === "down" && "呈下降趋势，状况有所改善"}
+                    {currentTrendData.summary.trend === "stable" && "保持平稳，持续监控中"}
+                  </p>
+                </div>
+              </div>
+              <div className="trend-insight-card">
+                <div className="trend-insight-dot" style={{ background: "#0f766e" }} />
+                <div>
+                  <p className="trend-insight-label">周环比变化</p>
+                  <p className="trend-insight-value">
+                    {currentTrendData.summary.trend === "up" && (
+                      <span style={{ color: "#e11d48" }}>
+                        较上周上升 {Math.abs(currentTrendData.summary.changePercent)}%
+                      </span>
+                    )}
+                    {currentTrendData.summary.trend === "down" && (
+                      <span style={{ color: "#16a34a" }}>
+                        较上周下降 {Math.abs(currentTrendData.summary.changePercent)}%
+                      </span>
+                    )}
+                    {currentTrendData.summary.trend === "stable" && (
+                      <span style={{ color: "#64748b" }}>
+                        与上周基本持平
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
+        </>
+      ) : (
+        <div className="trend-empty-state">
+          <div className="trend-empty-icon">📊</div>
+          <h3 className="trend-empty-title">暂无趋势数据</h3>
+          <p className="trend-empty-desc">
+            当前筛选条件下没有找到近7天的巡检记录或异常工单。
+            <br />
+            请先录入巡检记录或创建异常工单后再查看趋势分析。
+          </p>
         </div>
-
-        <TrendChart data={currentTrendData.data} color={chartColor} />
-      </div>
-
-      <div className="trend-insights">
-        <h4 className="trend-insights-title">数据洞察</h4>
-        <div className="trend-insights-grid">
-          <div className="trend-insight-card">
-            <div className="trend-insight-dot" style={{ background: chartColor }} />
-            <div>
-              <p className="trend-insight-label">当前趋势</p>
-              <p className="trend-insight-value">
-                {currentTrendData.summary.trend === "up" && "呈上升趋势，需重点关注"}
-                {currentTrendData.summary.trend === "down" && "呈下降趋势，状况有所改善"}
-                {currentTrendData.summary.trend === "stable" && "保持平稳，持续监控中"}
-              </p>
-            </div>
-          </div>
-          <div className="trend-insight-card">
-            <div className="trend-insight-dot" style={{ background: "#0f766e" }} />
-            <div>
-              <p className="trend-insight-label">周环比变化</p>
-              <p className="trend-insight-value">
-                {currentTrendData.summary.trend === "up" && (
-                  <span style={{ color: "#e11d48" }}>
-                    较上周上升 {Math.abs(currentTrendData.summary.changePercent)}%
-                  </span>
-                )}
-                {currentTrendData.summary.trend === "down" && (
-                  <span style={{ color: "#16a34a" }}>
-                    较上周下降 {Math.abs(currentTrendData.summary.changePercent)}%
-                  </span>
-                )}
-                {currentTrendData.summary.trend === "stable" && (
-                  <span style={{ color: "#64748b" }}>
-                    与上周基本持平
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </section>
   );
 }

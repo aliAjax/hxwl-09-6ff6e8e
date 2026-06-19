@@ -315,6 +315,9 @@ function App() {
         selectedType={filters.trendTypeFilter}
         onAreaChange={handleTrendAreaFilter}
         onTypeChange={handleTrendTypeFilter}
+        inspectionRecords={inspectionRecords}
+        anomalyTickets={anomalyTickets}
+        thresholds={thresholds}
       />
 
       <AnomalyTraceList
