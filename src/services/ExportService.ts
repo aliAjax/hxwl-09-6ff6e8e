@@ -149,9 +149,32 @@ export class ExportService {
   ): { success: boolean; message?: string } {
     const { area, startDate, endDate } = params;
 
+    const isValidDateStr = (s: string): boolean => {
+      if (!s) return true;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+      const d = new Date(s);
+      return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+    };
+
+    if (startDate && !isValidDateStr(startDate)) {
+      return { success: false, message: "开始日期格式无效，请使用 YYYY-MM-DD 格式。" };
+    }
+    if (endDate && !isValidDateStr(endDate)) {
+      return { success: false, message: "结束日期格式无效，请使用 YYYY-MM-DD 格式。" };
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return { success: false, message: "开始日期不能晚于结束日期。" };
+    }
+
+    const extractDate = (ts: string): string | null => {
+      if (!ts || typeof ts !== "string") return null;
+      const match = ts.match(/^(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : null;
+    };
+
     const inTimeRange = (ts: string): boolean => {
-      if (!ts) return false;
-      const t = ts.slice(0, 10);
+      const t = extractDate(ts);
+      if (!t) return false;
       if (startDate && t < startDate) return false;
       if (endDate && t > endDate) return false;
       return true;

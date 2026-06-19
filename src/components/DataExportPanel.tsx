@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { CleanArea } from "../domain";
 import { CLEAN_AREAS } from "../domain";
 
@@ -23,6 +23,13 @@ interface DataExportPanelProps {
   }) => { success: boolean; message?: string };
 }
 
+function isValidDateStr(s: string): boolean {
+  if (!s) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 export default function DataExportPanel({
   onExportRecords,
   onExportTickets,
@@ -35,6 +42,19 @@ export default function DataExportPanel({
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [lastMessage, setLastMessage] = useState<string>("");
+
+  const dateError = useMemo<string>(() => {
+    if (startDate && !isValidDateStr(startDate)) {
+      return "开始日期格式无效";
+    }
+    if (endDate && !isValidDateStr(endDate)) {
+      return "结束日期格式无效";
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return "开始日期不能晚于结束日期";
+    }
+    return "";
+  }, [startDate, endDate]);
 
   const showMessage = (msg: string, duration = 2500) => {
     setLastMessage(msg);
@@ -62,8 +82,8 @@ export default function DataExportPanel({
   };
 
   const handleExportTeamReview = () => {
-    if (startDate && endDate && startDate > endDate) {
-      showMessage("开始日期不能晚于结束日期", 3500);
+    if (dateError) {
+      showMessage(dateError, 3500);
       return;
     }
     const result = onExportTeamReview({
@@ -175,7 +195,9 @@ export default function DataExportPanel({
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="date-input"
+                  className={`date-input ${
+                    startDate && !isValidDateStr(startDate) ? "date-input-error" : ""
+                  }`}
                 />
               </label>
               <label className="date-input-label">
@@ -184,18 +206,26 @@ export default function DataExportPanel({
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="date-input"
+                  className={`date-input ${
+                    endDate && !isValidDateStr(endDate) ? "date-input-error" : ""
+                  }`}
                 />
               </label>
               <span className="date-range-hint">留空表示不限</span>
             </div>
+            {dateError && (
+              <div className="date-error">{dateError}</div>
+            )}
           </div>
         </div>
 
         <div className="export-buttons">
           <button
-            className="export-btn primary-action team-report-btn"
+            className={`export-btn primary-action team-report-btn ${
+              dateError ? "export-btn-disabled" : ""
+            }`}
             onClick={handleExportTeamReview}
+            disabled={!!dateError}
           >
             📤 导出班组复盘综合报告
           </button>
