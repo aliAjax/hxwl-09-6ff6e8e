@@ -4,6 +4,7 @@ import type {
 } from "../domain";
 import {
   CLEAN_AREAS, PLAN_ROLES, PLAN_STATUS_FILTERS, PLAN_STATUS_TAG_CLASS,
+  formatNow,
 } from "../domain";
 
 interface InspectionScheduleProps {
@@ -18,8 +19,9 @@ function InspectionSchedule({
   plans, activeFilter, onFilterChange, onAddPlan, onStatusChange,
 }: InspectionScheduleProps) {
   const [showForm, setShowForm] = useState(false);
+  const today = formatNow().slice(0, 10);
   const [form, setForm] = useState({
-    date: "2026-06-18",
+    date: today,
     area: CLEAN_AREAS[0] as CleanArea,
     role: PLAN_ROLES[0],
     inspector: "",
@@ -41,7 +43,7 @@ function InspectionSchedule({
       role: form.role,
       inspector: form.inspector.trim(),
     });
-    setForm((prev) => ({ ...prev, inspector: "" }));
+    setForm((prev) => ({ ...prev, date: today, inspector: "" }));
     setShowForm(false);
   };
 
