@@ -8,3 +8,5 @@ export { default as AnomalyTicketManagement } from "./AnomalyTicketManagement";
 export { default as InspectionRecordsList } from "./InspectionRecordsList";
 export { default as DataExportPanel } from "./DataExportPanel";
 export { default as SyncStatusBar } from "./SyncStatusBar";
+export { default as AnomalyTraceList } from "./AnomalyTraceList";
+export { default as AnomalyTraceDetail } from "./AnomalyTraceDetail";

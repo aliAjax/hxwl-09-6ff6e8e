@@ -1,5 +1,6 @@
 import type {
   AnomalyTicket,
+  AnomalyTrace,
   AreaThreshold,
   FilterConditions,
   InspectionPlan,
@@ -14,11 +15,13 @@ import { PlanService } from "./PlanService";
 import { ExportService } from "./ExportService";
 import { SyncService } from "./SyncService";
 import { FilterService } from "./FilterService";
+import { AnomalyTraceService } from "./AnomalyTraceService";
 
 export interface AppState {
   thresholds: AreaThreshold[];
   inspectionRecords: InspectionRecord[];
   anomalyTickets: AnomalyTicket[];
+  anomalyTraces: AnomalyTrace[];
   inspectionPlans: InspectionPlan[];
   filters: FilterConditions;
   syncStatus: SyncStatus;
@@ -29,15 +32,19 @@ export class AppService {
   readonly thresholds: ThresholdService;
   readonly inspection: InspectionService;
   readonly tickets: TicketService;
+  readonly traces: AnomalyTraceService;
   readonly plans: PlanService;
   readonly export: ExportService;
   readonly sync: SyncService;
   readonly filters: FilterService;
+  private readonly repo: AppRepository;
 
   constructor(repo: AppRepository, remote: RemoteSyncRepository) {
+    this.repo = repo;
     this.thresholds = new ThresholdService(repo);
     this.inspection = new InspectionService(repo);
     this.tickets = new TicketService(repo);
+    this.traces = new AnomalyTraceService();
     this.plans = new PlanService(repo);
     this.export = new ExportService();
     this.sync = new SyncService(repo, remote);
@@ -48,15 +55,19 @@ export class AppService {
     thresholds: AreaThreshold[];
     inspectionRecords: InspectionRecord[];
     anomalyTickets: AnomalyTicket[];
+    anomalyTraces: AnomalyTrace[];
     inspectionPlans: InspectionPlan[];
     filters: FilterConditions;
     wasEmpty: boolean;
   }> {
-    const [thresholds, inspectionRecords, anomalyTickets, inspectionPlans, filters] =
+    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters] =
       await Promise.all([
         this.thresholds.getAll(),
         this.inspection.getAll(),
         this.tickets.getAll(),
+        this.repo.getAnomalyTraces
+          ? this.repo.getAnomalyTraces()
+          : Promise.resolve([]),
         this.plans.getAll(),
         this.filters.get(),
       ]);
@@ -72,6 +83,7 @@ export class AppService {
       thresholds,
       inspectionRecords,
       anomalyTickets,
+      anomalyTraces,
       inspectionPlans,
       filters,
       wasEmpty,

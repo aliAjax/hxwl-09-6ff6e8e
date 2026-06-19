@@ -1,19 +1,22 @@
 import {
   DB_NAME,
   DB_VERSION,
-  STORE_NAMES,
+  DB_STORE_NAMES,
   type DBStoreName,
   type DBSchema,
   type AreaThreshold,
   type InspectionRecord,
   type AnomalyTicket,
   type FilterConditions,
+  type AnomalyTrace,
+  type InspectionPlan,
 } from "./types";
 import {
   defaultThresholds,
   initialInspectionRecords,
   initialTickets,
   defaultFilters,
+  initialTraces,
 } from "./sampleData";
 
 type IDBRequestResult<T> = T;
@@ -37,15 +40,15 @@ function openDB(): Promise<IDBDatabase> {
       const oldVersion = event.oldVersion || 0;
 
       if (oldVersion < 1) {
-        if (!db.objectStoreNames.contains(STORE_NAMES.thresholds)) {
-          const store = db.createObjectStore(STORE_NAMES.thresholds, {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.thresholds)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.thresholds, {
             keyPath: "area",
           });
           store.createIndex("area", "area", { unique: true });
         }
 
-        if (!db.objectStoreNames.contains(STORE_NAMES.inspectionRecords)) {
-          const store = db.createObjectStore(STORE_NAMES.inspectionRecords, {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.inspectionRecords)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.inspectionRecords, {
             keyPath: "id",
           });
           store.createIndex("id", "id", { unique: true });
@@ -54,8 +57,8 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("createdAt", "createdAt", { unique: false });
         }
 
-        if (!db.objectStoreNames.contains(STORE_NAMES.anomalyTickets)) {
-          const store = db.createObjectStore(STORE_NAMES.anomalyTickets, {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.anomalyTickets)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.anomalyTickets, {
             keyPath: "id",
           });
           store.createIndex("id", "id", { unique: true });
@@ -67,8 +70,22 @@ function openDB(): Promise<IDBDatabase> {
           });
         }
 
-        if (!db.objectStoreNames.contains(STORE_NAMES.filters)) {
-          db.createObjectStore(STORE_NAMES.filters, { keyPath: "key" });
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.filters)) {
+          db.createObjectStore(DB_STORE_NAMES.filters, { keyPath: "key" });
+        }
+      }
+
+      if (oldVersion < 3) {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.anomalyTraces)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.anomalyTraces, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("roomId", "roomId", { unique: false });
+          store.createIndex("area", "area", { unique: false });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("anomalyType", "anomalyType", { unique: false });
+          store.createIndex("firstOccurredAt", "firstOccurredAt", { unique: false });
         }
       }
     };
@@ -211,8 +228,41 @@ function backfillFilterConditions(
   };
 }
 
+function backfillAnomalyTrace(
+  data: Partial<AnomalyTrace> & { id: number }
+): AnomalyTrace {
+  return {
+    id: data.id,
+    roomId: data.roomId ?? "",
+    area: data.area ?? "ISO 6",
+    anomalyType: data.anomalyType ?? "粒子异常",
+    status: data.status ?? "异常发生",
+    rootCause: data.rootCause,
+    rootCauseDetail: data.rootCauseDetail,
+    confidence: data.confidence,
+    firstOccurredAt: data.firstOccurredAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    lastOccurredAt: data.lastOccurredAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    anomalyCount: data.anomalyCount ?? 1,
+    recoveryCount: data.recoveryCount ?? 0,
+    initialRecordId: data.initialRecordId,
+    triggerTicketId: data.triggerTicketId,
+    linkedRecordIds: data.linkedRecordIds ?? [],
+    linkedTicketIds: data.linkedTicketIds ?? [],
+    processingSteps: data.processingSteps ?? [],
+    closeCondition: data.closeCondition ?? {
+      particleStable: false,
+      pressureStable: false,
+      tempHumidityStable: false,
+      deviceNormal: false,
+      consecutiveNormalRecords: 0,
+      ticketsClosed: false,
+    },
+    canClose: data.canClose ?? false,
+  };
+}
+
 async function getAllThresholds(): Promise<AreaThreshold[]> {
-  return withStore(STORE_NAMES.thresholds, "readonly", async (store) => {
+  return withStore(DB_STORE_NAMES.thresholds, "readonly", async (store) => {
     const results = await promisifyRequest<AreaThreshold[]>(store.getAll() as IDBRequest<AreaThreshold[]>);
     if (results.length === 0) {
       return [];
@@ -224,7 +274,7 @@ async function getAllThresholds(): Promise<AreaThreshold[]> {
 }
 
 async function saveAllThresholds(thresholds: AreaThreshold[]): Promise<void> {
-  return withStore(STORE_NAMES.thresholds, "readwrite", async (store) => {
+  return withStore(DB_STORE_NAMES.thresholds, "readwrite", async (store) => {
     await promisifyRequest(store.clear());
     for (const th of thresholds) {
       await promisifyRequest(store.put(th));
@@ -233,7 +283,7 @@ async function saveAllThresholds(thresholds: AreaThreshold[]): Promise<void> {
 }
 
 async function getAllInspectionRecords(): Promise<InspectionRecord[]> {
-  return withStore(STORE_NAMES.inspectionRecords, "readonly", async (store) => {
+  return withStore(DB_STORE_NAMES.inspectionRecords, "readonly", async (store) => {
     const results = await promisifyRequest<InspectionRecord[]>(store.getAll() as IDBRequest<InspectionRecord[]>);
     return results
       .map((r) => backfillInspectionRecord(r as Partial<InspectionRecord> & { id: number }))
@@ -247,13 +297,13 @@ async function getAllInspectionRecords(): Promise<InspectionRecord[]> {
 }
 
 async function saveInspectionRecord(record: InspectionRecord): Promise<void> {
-  await withStore(STORE_NAMES.inspectionRecords, "readwrite", (store) => {
+  await withStore(DB_STORE_NAMES.inspectionRecords, "readwrite", (store) => {
     return promisifyRequest(store.put(record));
   });
 }
 
 async function saveAllInspectionRecords(records: InspectionRecord[]): Promise<void> {
-  return withStore(STORE_NAMES.inspectionRecords, "readwrite", async (store) => {
+  return withStore(DB_STORE_NAMES.inspectionRecords, "readwrite", async (store) => {
     await promisifyRequest(store.clear());
     for (const r of records) {
       await promisifyRequest(store.put(r));
@@ -262,7 +312,7 @@ async function saveAllInspectionRecords(records: InspectionRecord[]): Promise<vo
 }
 
 async function getAllAnomalyTickets(): Promise<AnomalyTicket[]> {
-  return withStore(STORE_NAMES.anomalyTickets, "readonly", async (store) => {
+  return withStore(DB_STORE_NAMES.anomalyTickets, "readonly", async (store) => {
     const results = await promisifyRequest<AnomalyTicket[]>(store.getAll() as IDBRequest<AnomalyTicket[]>);
     return results
       .map((r) => backfillAnomalyTicket(r as Partial<AnomalyTicket> & { id: number }))
@@ -276,13 +326,13 @@ async function getAllAnomalyTickets(): Promise<AnomalyTicket[]> {
 }
 
 async function saveAnomalyTicket(ticket: AnomalyTicket): Promise<void> {
-  await withStore(STORE_NAMES.anomalyTickets, "readwrite", (store) => {
+  await withStore(DB_STORE_NAMES.anomalyTickets, "readwrite", (store) => {
     return promisifyRequest(store.put(ticket));
   });
 }
 
 async function saveAllAnomalyTickets(tickets: AnomalyTicket[]): Promise<void> {
-  return withStore(STORE_NAMES.anomalyTickets, "readwrite", async (store) => {
+  return withStore(DB_STORE_NAMES.anomalyTickets, "readwrite", async (store) => {
     await promisifyRequest(store.clear());
     for (const t of tickets) {
       await promisifyRequest(store.put(t));
@@ -290,26 +340,74 @@ async function saveAllAnomalyTickets(tickets: AnomalyTicket[]): Promise<void> {
   });
 }
 
+async function updateTicketStatus(id: number, status: AnomalyTicket["status"]): Promise<void> {
+  await withStore(DB_STORE_NAMES.anomalyTickets, "readwrite", async (store) => {
+    const existing = await promisifyRequest(store.get(id) as IDBRequest<AnomalyTicket | undefined>);
+    if (existing) {
+      await promisifyRequest(store.put({ ...existing, status, synced: false }));
+    }
+  });
+}
+
+async function updatePlanStatus(id: number, status: InspectionPlan["status"]): Promise<void> {
+  await withStore(DB_STORE_NAMES.inspectionPlans, "readwrite", async (store) => {
+    const existing = await promisifyRequest(store.get(id) as IDBRequest<InspectionPlan | undefined>);
+    if (existing) {
+      await promisifyRequest(store.put({ ...existing, status, synced: false }));
+    }
+  });
+}
+
 async function getFilterConditions(): Promise<FilterConditions> {
-  return withStore(STORE_NAMES.filters, "readonly", async (store) => {
+  return withStore(DB_STORE_NAMES.filters, "readonly", async (store) => {
     const result = await promisifyRequest(store.get("main") as IDBRequest<Partial<FilterConditions> | undefined>);
     return backfillFilterConditions(result);
   });
 }
 
 async function saveFilterConditions(filters: FilterConditions): Promise<void> {
-  await withStore(STORE_NAMES.filters, "readwrite", (store) => {
+  await withStore(DB_STORE_NAMES.filters, "readwrite", (store) => {
     return promisifyRequest(store.put({ key: "main", ...filters }));
   });
 }
 
+async function getAllAnomalyTraces(): Promise<AnomalyTrace[]> {
+  return withStore(DB_STORE_NAMES.anomalyTraces, "readonly", async (store) => {
+    const results = await promisifyRequest<AnomalyTrace[]>(store.getAll() as IDBRequest<AnomalyTrace[]>);
+    return results
+      .map((r) => backfillAnomalyTrace(r as Partial<AnomalyTrace> & { id: number }))
+      .sort((a, b) => {
+        if (!a.lastOccurredAt && !b.lastOccurredAt) return 0;
+        if (!a.lastOccurredAt) return 1;
+        if (!b.lastOccurredAt) return -1;
+        return b.lastOccurredAt.localeCompare(a.lastOccurredAt);
+      });
+  });
+}
+
+async function saveAnomalyTrace(trace: AnomalyTrace): Promise<void> {
+  await withStore(DB_STORE_NAMES.anomalyTraces, "readwrite", (store) => {
+    return promisifyRequest(store.put(trace));
+  });
+}
+
+async function saveAllAnomalyTraces(traces: AnomalyTrace[]): Promise<void> {
+  return withStore(DB_STORE_NAMES.anomalyTraces, "readwrite", async (store) => {
+    await promisifyRequest(store.clear());
+    for (const t of traces) {
+      await promisifyRequest(store.put(t));
+    }
+  });
+}
+
 async function isDatabaseEmpty(): Promise<boolean> {
-  const [thresholds, records, tickets] = await Promise.all([
+  const [thresholds, records, tickets, traces] = await Promise.all([
     getAllThresholds(),
     getAllInspectionRecords(),
     getAllAnomalyTickets(),
+    getAllAnomalyTraces(),
   ]);
-  return thresholds.length === 0 && records.length === 0 && tickets.length === 0;
+  return thresholds.length === 0 && records.length === 0 && tickets.length === 0 && traces.length === 0;
 }
 
 async function seedSampleData(): Promise<void> {
@@ -317,16 +415,18 @@ async function seedSampleData(): Promise<void> {
     saveAllThresholds(defaultThresholds),
     saveAllInspectionRecords(initialInspectionRecords),
     saveAllAnomalyTickets(initialTickets),
+    saveAllAnomalyTraces(initialTraces),
     saveFilterConditions(defaultFilters),
   ]);
 }
 
 async function clearAllData(): Promise<void> {
   const stores = [
-    STORE_NAMES.thresholds,
-    STORE_NAMES.inspectionRecords,
-    STORE_NAMES.anomalyTickets,
-    STORE_NAMES.filters,
+    DB_STORE_NAMES.thresholds,
+    DB_STORE_NAMES.inspectionRecords,
+    DB_STORE_NAMES.anomalyTickets,
+    DB_STORE_NAMES.anomalyTraces,
+    DB_STORE_NAMES.filters,
   ];
 
   const db = await openDB();
@@ -365,6 +465,7 @@ async function loadAllData(): Promise<{
   thresholds: AreaThreshold[];
   inspectionRecords: InspectionRecord[];
   anomalyTickets: AnomalyTicket[];
+  anomalyTraces: AnomalyTrace[];
   filters: FilterConditions;
   wasEmpty: boolean;
 }> {
@@ -373,11 +474,12 @@ async function loadAllData(): Promise<{
     await seedSampleData();
   }
 
-  const [thresholds, inspectionRecords, anomalyTickets, filters] =
+  const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, filters] =
     await Promise.all([
       getAllThresholds(),
       getAllInspectionRecords(),
       getAllAnomalyTickets(),
+      getAllAnomalyTraces(),
       getFilterConditions(),
     ]);
 
@@ -389,6 +491,7 @@ async function loadAllData(): Promise<{
     thresholds: orderedThresholds.length > 0 ? orderedThresholds : defaultThresholds,
     inspectionRecords,
     anomalyTickets,
+    anomalyTraces,
     filters,
     wasEmpty: empty,
   };
@@ -404,8 +507,13 @@ export {
   getAllAnomalyTickets,
   saveAnomalyTicket,
   saveAllAnomalyTickets,
+  updateTicketStatus,
+  updatePlanStatus,
   getFilterConditions,
   saveFilterConditions,
+  getAllAnomalyTraces,
+  saveAnomalyTrace,
+  saveAllAnomalyTraces,
   isDatabaseEmpty,
   seedSampleData,
   clearAllData,
@@ -414,6 +522,7 @@ export {
   backfillInspectionRecord,
   backfillAnomalyTicket,
   backfillFilterConditions,
+  backfillAnomalyTrace,
 };
 
 export type { DBSchema, DBStoreName };

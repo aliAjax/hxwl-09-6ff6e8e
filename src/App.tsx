@@ -11,6 +11,7 @@ import {
   InspectionRecordsList,
   DataExportPanel,
   SyncStatusBar,
+  AnomalyTraceList,
 } from "./components";
 import AnomalyTrendAnalysis from "./AnomalyTrendAnalysis";
 import RoleDashboard from "./RoleDashboard";
@@ -68,6 +69,7 @@ function App() {
     syncStatus,
     isLoading,
     isOnline,
+    anomalyTraces,
     setThresholds,
     addInspectionRecord,
     createTicketFromRecord,
@@ -86,6 +88,19 @@ function App() {
     resetToSampleData,
     clearLocalData,
     syncPending,
+    getTracesForRoom,
+    getRecordsForRoom,
+    getTicketsForTrace,
+    getRecordsForTrace,
+    evaluateTraceCloseCondition,
+    inferRootCauseForTrace,
+    checkClosedTicketAbnormal,
+    ticketAssignees,
+    setTraceRootCause,
+    addTraceProcessingStep,
+    updateTraceStatus,
+    markTraceRecovery,
+    createOrUpdateTraceFromRecord,
   } = store;
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -276,6 +291,25 @@ function App() {
         selectedType={filters.trendTypeFilter}
         onAreaChange={handleTrendAreaFilter}
         onTypeChange={handleTrendTypeFilter}
+      />
+
+      <AnomalyTraceList
+        traces={anomalyTraces}
+        records={inspectionRecords}
+        thresholds={thresholds}
+        getTracesForRoom={getTracesForRoom}
+        getRecordsForRoom={getRecordsForRoom}
+        getTicketsForTrace={getTicketsForTrace}
+        getRecordsForTrace={getRecordsForTrace}
+        evaluateTraceCloseCondition={evaluateTraceCloseCondition}
+        inferRootCauseForTrace={inferRootCauseForTrace}
+        checkClosedTicketAbnormal={checkClosedTicketAbnormal}
+        ticketAssignees={ticketAssignees}
+        setTraceRootCause={setTraceRootCause}
+        addTraceProcessingStep={addTraceProcessingStep}
+        updateTraceStatus={updateTraceStatus}
+        markTraceRecovery={markTraceRecovery}
+        createOrUpdateTraceFromRecord={createOrUpdateTraceFromRecord}
       />
 
       <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />

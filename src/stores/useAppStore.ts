@@ -3,6 +3,8 @@ import type {
   AnomalyCheckResult,
   AnomalyTicket,
   AnomalyTicketInput,
+  AnomalyTrace,
+  AnomalyTraceInput,
   AreaThreshold,
   CleanArea,
   FilterConditions,
@@ -10,10 +12,13 @@ import type {
   InspectionRecord,
   InspectionRecordInput,
   PlanStatus,
+  ProcessingActionType,
   RecordStatusResult,
+  RootCauseCategory,
   SyncStatus,
   TicketAnomalyType,
   TicketStatus,
+  TraceStatus,
 } from "../domain";
 import { appService } from "../services";
 import { localDBRepository } from "../repositories";
@@ -31,6 +36,7 @@ export interface UseAppStoreReturn {
   thresholds: AreaThreshold[];
   inspectionRecords: InspectionRecord[];
   anomalyTickets: AnomalyTicket[];
+  anomalyTraces: AnomalyTrace[];
   inspectionPlans: InspectionPlan[];
   filters: FilterConditions;
   syncStatus: SyncStatus;
@@ -40,6 +46,7 @@ export interface UseAppStoreReturn {
   setThresholds: (t: Updater<AreaThreshold[]>) => void;
   setInspectionRecords: (r: Updater<InspectionRecord[]>) => void;
   setAnomalyTickets: (t: Updater<AnomalyTicket[]>) => void;
+  setAnomalyTraces: (t: Updater<AnomalyTrace[]>) => void;
   setInspectionPlans: (p: Updater<InspectionPlan[]>) => void;
   setFilters: (f: Updater<FilterConditions>) => void;
   addInspectionRecord: (record: InspectionRecord) => void;
@@ -64,6 +71,32 @@ export interface UseAppStoreReturn {
     anomalyType: TicketAnomalyType
   ) => Promise<AnomalyTicket>;
   updateAnomalyTicketStatus: (id: number, status: TicketStatus) => void;
+  createAnomalyTrace: (
+    input: AnomalyTraceInput
+  ) => Promise<AnomalyTrace>;
+  addAnomalyTrace: (trace: AnomalyTrace) => void;
+  updateAnomalyTrace: (trace: AnomalyTrace) => void;
+  setTraceRootCause: (
+    traceId: number,
+    rootCause: RootCauseCategory,
+    detail: string,
+    confidence: number
+  ) => void;
+  addTraceProcessingStep: (
+    traceId: number,
+    action: ProcessingActionType,
+    description: string,
+    operator: string,
+    beforeStatus?: string,
+    afterStatus?: string
+  ) => void;
+  updateTraceStatus: (traceId: number, status: TraceStatus) => void;
+  markTraceRecovery: (traceId: number, operator: string) => void;
+  createOrUpdateTraceFromRecord: (
+    record: InspectionRecord,
+    anomalyType: TicketAnomalyType,
+    ticketId?: number
+  ) => void;
   addInspectionPlan: (plan: InspectionPlan) => void;
   createInspectionPlan: (input: {
     date: string;
@@ -86,11 +119,25 @@ export interface UseAppStoreReturn {
     anomalyType: TicketAnomalyType
   ) => boolean;
   getExistingRoomIds: () => string[];
+  getTracesForRoom: (roomId: string) => AnomalyTrace[];
+  getRecordsForRoom: (roomId: string, limit?: number) => InspectionRecord[];
+  getTicketsForTrace: (trace: AnomalyTrace) => AnomalyTicket[];
+  getRecordsForTrace: (trace: AnomalyTrace) => InspectionRecord[];
+  evaluateTraceCloseCondition: (
+    trace: AnomalyTrace
+  ) => { condition: import("../domain").CloseCondition; canClose: boolean; warnings: string[] };
+  inferRootCauseForTrace: (traceId: number) => {
+    cause: RootCauseCategory;
+    detail: string;
+    confidence: number;
+  } | null;
+  checkClosedTicketAbnormal: (trace: AnomalyTrace) => boolean;
   ticketAssignees: () => string[];
   planAreas: () => CleanArea[];
   planRoles: () => string[];
   countTicketsByStatus: () => Record<TicketStatus, number>;
   countPlansByStatus: () => Record<PlanStatus, number>;
+  countTracesByStatus: () => Record<TraceStatus, number>;
   exportRecordsCsv: (
     areaFilter: CleanArea | "全部") => { success: boolean; message?: string };
   exportTicketsCsv: (
@@ -110,6 +157,7 @@ export function useAppStore(): UseAppStoreReturn {
   >([]);
   const [anomalyTickets, setAnomalyTicketsState] = useState<
     AnomalyTicket[]>([]);
+  const [anomalyTraces, setAnomalyTracesState] = useState<AnomalyTrace[]>([]);
   const [inspectionPlans, setInspectionPlansState] = useState<
     InspectionPlan[]>([]);
   const [filters, setFiltersState] = useState<FilterConditions>(
@@ -129,11 +177,12 @@ export function useAppStore(): UseAppStoreReturn {
 
     localDBRepository
       .loadAll()
-      .then(async (data) => {
+      .then(async (data: any) => {
         if (!mounted) return;
         setThresholdsState(data.thresholds);
         setInspectionRecordsState(data.inspectionRecords);
         setAnomalyTicketsState(data.anomalyTickets);
+        setAnomalyTracesState(data.anomalyTraces || []);
         setInspectionPlansState(data.inspectionPlans);
         setFiltersState(data.filters);
         setWasInitialized(data.wasEmpty);
@@ -190,6 +239,16 @@ export function useAppStore(): UseAppStoreReturn {
     });
   }, []);
 
+  const setAnomalyTraces = useCallback((t: Updater<AnomalyTrace[]>) => {
+    setAnomalyTracesState((prev) => {
+      const next = resolveUpdater(t, prev);
+      localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
+        console.error("Failed to save anomaly traces:", err)
+      );
+      return next;
+    });
+  }, []);
+
   const setInspectionPlans = useCallback((p: Updater<InspectionPlan[]>) => {
     setInspectionPlansState((prev) => {
       const next = resolveUpdater(p, prev);
@@ -225,10 +284,10 @@ export function useAppStore(): UseAppStoreReturn {
         thresholds,
         roomIds
       );
-      if (result.record) {
+      if (result && result.record) {
         addInspectionRecord(result.record);
       }
-      return result as {
+      return (result || { record: null, errors: {} }) as {
         record: InspectionRecord | null; errors: Record<string, string> };
     },
     [thresholds, inspectionRecords, addInspectionRecord]
@@ -286,6 +345,132 @@ export function useAppStore(): UseAppStoreReturn {
       );
     },
     [setAnomalyTickets]
+  );
+
+  const addAnomalyTrace = useCallback(
+    (trace: AnomalyTrace) => {
+      setAnomalyTraces((prev) => [trace, ...prev]);
+    },
+    [setAnomalyTraces]
+  );
+
+  const updateAnomalyTrace = useCallback(
+    (trace: AnomalyTrace) => {
+      setAnomalyTraces((prev) =>
+        prev.map((t) => (t.id === trace.id ? { ...trace, synced: false } : t))
+      );
+      localDBRepository.saveAnomalyTrace({ ...trace, synced: false }).catch(
+        (err) => console.error("Failed to update anomaly trace:", err)
+      );
+    },
+    [setAnomalyTraces]
+  );
+
+  const createAnomalyTrace = useCallback(
+    async (input: AnomalyTraceInput) => {
+      const trace = appService.traces.create(input, anomalyTraces);
+      addAnomalyTrace(trace);
+      return trace;
+    },
+    [anomalyTraces, addAnomalyTrace]
+  );
+
+  const setTraceRootCause = useCallback(
+    (
+      traceId: number,
+      rootCause: RootCauseCategory,
+      detail: string,
+      confidence: number
+    ) => {
+      setAnomalyTraces((prev) =>
+        prev.map((t) => {
+          if (t.id !== traceId) return t;
+          return {
+            ...appService.traces.updateRootCause(t, rootCause, detail, confidence),
+            synced: false,
+          };
+        })
+      );
+    },
+    [setAnomalyTraces]
+  );
+
+  const addTraceProcessingStep = useCallback(
+    (
+      traceId: number,
+      action: ProcessingActionType,
+      description: string,
+      operator: string,
+      beforeStatus?: string,
+      afterStatus?: string
+    ) => {
+      setAnomalyTraces((prev) =>
+        prev.map((t) => {
+          if (t.id !== traceId) return t;
+          return {
+            ...appService.traces.addProcessingStep(t, action, description, operator, beforeStatus, afterStatus),
+            synced: false,
+          };
+        })
+      );
+    },
+    [setAnomalyTraces]
+  );
+
+  const updateTraceStatus = useCallback(
+    (traceId: number, status: TraceStatus) => {
+      setAnomalyTraces((prev) =>
+        prev.map((t) => (t.id === traceId ? { ...t, status, synced: false } : t))
+      );
+    },
+    [setAnomalyTraces]
+  );
+
+  const markTraceRecovery = useCallback(
+    (traceId: number, operator: string) => {
+      setAnomalyTraces((prev) =>
+        prev.map((t) => {
+          if (t.id !== traceId) return t;
+          return {
+            ...appService.traces.markRecovery(t, operator),
+            synced: false,
+          };
+        })
+      );
+    },
+    [setAnomalyTraces]
+  );
+
+  const createOrUpdateTraceFromRecord = useCallback(
+    (record: InspectionRecord, anomalyType: TicketAnomalyType, ticketId?: number) => {
+      const existing = appService.traces.findTraceForRoom(
+        anomalyTraces,
+        record.roomId,
+        anomalyType
+      );
+
+      if (existing) {
+        const updated = appService.traces.updateOnNewRecord(
+          existing,
+          record,
+          thresholds
+        );
+        if (ticketId && !updated.linkedTicketIds.includes(ticketId)) {
+          updated.linkedTicketIds = [...updated.linkedTicketIds, ticketId];
+        }
+        updateAnomalyTrace(updated);
+      } else {
+        const traceInput: AnomalyTraceInput = {
+          roomId: record.roomId,
+          area: record.area,
+          anomalyType,
+          initialRecordId: record.id,
+          triggerTicketId: ticketId,
+        };
+        createAnomalyTrace(traceInput);
+      }
+    },
+    [anomalyTraces, thresholds, updateAnomalyTrace, createAnomalyTrace]
   );
 
   const addInspectionPlan = useCallback(
@@ -360,6 +545,85 @@ export function useAppStore(): UseAppStoreReturn {
     return inspectionRecords.map((r) => r.roomId);
   }, [inspectionRecords]);
 
+  const getTracesForRoom = useCallback(
+    (roomId: string) => {
+      return appService.traces.findAllTracesForRoom(anomalyTraces, roomId);
+    },
+    [anomalyTraces]
+  );
+
+  const getRecordsForRoom = useCallback(
+    (roomId: string, limit: number = 10) => {
+      return appService.traces.getRecentRecordsForRoom(inspectionRecords, roomId, limit);
+    },
+    [inspectionRecords]
+  );
+
+  const getTicketsForTrace = useCallback(
+    (trace: AnomalyTrace) => {
+      return appService.traces.getRelatedTicketsForTrace(anomalyTickets, trace);
+    },
+    [anomalyTickets]
+  );
+
+  const getRecordsForTrace = useCallback(
+    (trace: AnomalyTrace) => {
+      return appService.traces.getRelatedRecordsForTrace(inspectionRecords, trace);
+    },
+    [inspectionRecords]
+  );
+
+  const evaluateTraceCloseCondition = useCallback(
+    (trace: AnomalyTrace) => {
+      const roomRecords = appService.traces.getRecentRecordsForRoom(
+        inspectionRecords,
+        trace.roomId,
+        20
+      );
+      const relatedTickets = appService.traces.getRelatedTicketsForTrace(
+        anomalyTickets,
+        trace
+      );
+      return appService.traces.evaluateCloseCondition(
+        trace,
+        roomRecords,
+        relatedTickets,
+        thresholds
+      );
+    },
+    [inspectionRecords, anomalyTickets, thresholds]
+  );
+
+  const inferRootCauseForTrace = useCallback(
+    (traceId: number) => {
+      const trace = anomalyTraces.find((t) => t.id === traceId);
+      if (!trace) return null;
+      const recentRecords = appService.traces.getRecentRecordsForRoom(
+        inspectionRecords,
+        trace.roomId,
+        10
+      );
+      const relatedTickets = appService.traces.getRelatedTicketsForTrace(
+        anomalyTickets,
+        trace
+      );
+      return appService.traces.inferRootCause(trace, recentRecords, relatedTickets);
+    },
+    [anomalyTraces, inspectionRecords, anomalyTickets]
+  );
+
+  const checkClosedTicketAbnormal = useCallback(
+    (trace: AnomalyTrace) => {
+      return appService.traces.checkTicketClosedButDataAbnormal(
+        trace,
+        anomalyTickets,
+        inspectionRecords,
+        thresholds
+      );
+    },
+    [anomalyTickets, inspectionRecords, thresholds]
+  );
+
   const ticketAssignees = useCallback(() => {
     return appService.tickets.getAssignees();
   }, []);
@@ -379,6 +643,14 @@ export function useAppStore(): UseAppStoreReturn {
   const countPlansByStatus = useCallback(() => {
     return appService.plans.countByStatus(inspectionPlans);
   }, [inspectionPlans]);
+
+  const countTracesByStatus = useCallback(() => {
+    const counts: Record<string, number> = {};
+    anomalyTraces.forEach((t) => {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+    });
+    return counts as Record<TraceStatus, number>;
+  }, [anomalyTraces]);
 
   const exportRecordsCsv = useCallback(
     (areaFilter: CleanArea | "全部") => {
@@ -428,6 +700,7 @@ export function useAppStore(): UseAppStoreReturn {
     setThresholdsState(data.thresholds);
     setInspectionRecordsState(data.inspectionRecords);
     setAnomalyTicketsState(data.anomalyTickets);
+    setAnomalyTracesState((data as any).anomalyTraces || []);
     setInspectionPlansState(data.inspectionPlans);
     setFiltersState(data.filters);
   }, []);
@@ -439,6 +712,7 @@ export function useAppStore(): UseAppStoreReturn {
     setThresholdsState(data.thresholds);
     setInspectionRecordsState(data.inspectionRecords);
     setAnomalyTicketsState(data.anomalyTickets);
+    setAnomalyTracesState((data as any).anomalyTraces || []);
     setInspectionPlansState(data.inspectionPlans);
     setFiltersState(data.filters);
     setWasInitialized(true);
@@ -455,6 +729,7 @@ export function useAppStore(): UseAppStoreReturn {
     thresholds,
     inspectionRecords,
     anomalyTickets,
+    anomalyTraces,
     inspectionPlans,
     filters,
     syncStatus,
@@ -464,6 +739,7 @@ export function useAppStore(): UseAppStoreReturn {
     setThresholds,
     setInspectionRecords,
     setAnomalyTickets,
+    setAnomalyTraces,
     setInspectionPlans,
     setFilters,
     addInspectionRecord,
@@ -472,6 +748,14 @@ export function useAppStore(): UseAppStoreReturn {
     createAnomalyTicket,
     createTicketFromRecord,
     updateAnomalyTicketStatus,
+    createAnomalyTrace,
+    addAnomalyTrace,
+    updateAnomalyTrace,
+    setTraceRootCause,
+    addTraceProcessingStep,
+    updateTraceStatus,
+    markTraceRecovery,
+    createOrUpdateTraceFromRecord,
     addInspectionPlan,
     createInspectionPlan,
     updateInspectionPlanStatus,
@@ -479,11 +763,19 @@ export function useAppStore(): UseAppStoreReturn {
     getRecordStatus,
     hasTicketForRecord,
     getExistingRoomIds,
+    getTracesForRoom,
+    getRecordsForRoom,
+    getTicketsForTrace,
+    getRecordsForTrace,
+    evaluateTraceCloseCondition,
+    inferRootCauseForTrace,
+    checkClosedTicketAbnormal,
     ticketAssignees,
     planAreas,
     planRoles,
     countTicketsByStatus,
     countPlansByStatus,
+    countTracesByStatus,
     exportRecordsCsv,
     exportTicketsCsv,
     exportPlansCsv,

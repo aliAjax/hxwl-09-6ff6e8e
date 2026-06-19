@@ -6,9 +6,11 @@ import {
   DEFAULT_PLANS,
   DEFAULT_THRESHOLDS,
   DEFAULT_TICKETS,
+  DEFAULT_TRACES,
 } from "../domain/constants";
 import type {
   AnomalyTicket,
+  AnomalyTrace,
   AreaThreshold,
   DBSchema,
   FilterConditions,
@@ -84,6 +86,20 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("date", "date", { unique: false });
           store.createIndex("status", "status", { unique: false });
           store.createIndex("inspector", "inspector", { unique: false });
+        }
+      }
+
+      if (oldVersion < 3) {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.anomalyTraces)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.anomalyTraces, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("roomId", "roomId", { unique: false });
+          store.createIndex("area", "area", { unique: false });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("anomalyType", "anomalyType", { unique: false });
+          store.createIndex("firstOccurredAt", "firstOccurredAt", { unique: false });
         }
       }
     };
@@ -241,6 +257,40 @@ function backfillFilterConditions(
   };
 }
 
+function backfillAnomalyTrace(
+  data: Partial<AnomalyTrace> & { id: number }
+): AnomalyTrace {
+  return {
+    id: data.id,
+    roomId: data.roomId ?? "",
+    area: data.area ?? "ISO 6",
+    anomalyType: data.anomalyType ?? "粒子异常",
+    status: data.status ?? "异常发生",
+    rootCause: data.rootCause,
+    rootCauseDetail: data.rootCauseDetail,
+    confidence: data.confidence,
+    firstOccurredAt: data.firstOccurredAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    lastOccurredAt: data.lastOccurredAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    anomalyCount: data.anomalyCount ?? 1,
+    recoveryCount: data.recoveryCount ?? 0,
+    initialRecordId: data.initialRecordId,
+    triggerTicketId: data.triggerTicketId,
+    linkedRecordIds: data.linkedRecordIds ?? [],
+    linkedTicketIds: data.linkedTicketIds ?? [],
+    processingSteps: data.processingSteps ?? [],
+    closeCondition: data.closeCondition ?? {
+      particleStable: false,
+      pressureStable: false,
+      tempHumidityStable: false,
+      deviceNormal: false,
+      consecutiveNormalRecords: 0,
+      ticketsClosed: false,
+    },
+    canClose: data.canClose ?? false,
+    synced: data.synced ?? false,
+  };
+}
+
 export class LocalDBRepository implements AppRepository {
   async getThresholds(): Promise<AreaThreshold[]> {
     return withStore(DB_STORE_NAMES.thresholds, "readonly", async (store) => {
@@ -371,6 +421,49 @@ export class LocalDBRepository implements AppRepository {
     );
   }
 
+  async getAnomalyTraces(): Promise<AnomalyTrace[]> {
+    return withStore(
+      DB_STORE_NAMES.anomalyTraces,
+      "readonly",
+      async (store) => {
+        const results = await promisifyRequest<AnomalyTrace[]>(
+          store.getAll() as IDBRequest<AnomalyTrace[]>
+        );
+        return results
+          .map((r) =>
+            backfillAnomalyTrace(
+              r as Partial<AnomalyTrace> & { id: number }
+            )
+          )
+          .sort((a, b) => {
+            if (!a.lastOccurredAt && !b.lastOccurredAt) return 0;
+            if (!a.lastOccurredAt) return 1;
+            if (!b.lastOccurredAt) return -1;
+            return b.lastOccurredAt.localeCompare(a.lastOccurredAt);
+          });
+      }
+    );
+  }
+
+  async saveAnomalyTrace(trace: AnomalyTrace): Promise<void> {
+    await withStore(DB_STORE_NAMES.anomalyTraces, "readwrite", (store) => {
+      return promisifyRequest(store.put(trace));
+    });
+  }
+
+  async saveAllAnomalyTraces(traces: AnomalyTrace[]): Promise<void> {
+    return withStore(
+      DB_STORE_NAMES.anomalyTraces,
+      "readwrite",
+      async (store) => {
+        await promisifyRequest(store.clear());
+        for (const t of traces) {
+          await promisifyRequest(store.put(t));
+        }
+      }
+    );
+  }
+
   async getInspectionPlans(): Promise<InspectionPlan[]> {
     return withStore(
       DB_STORE_NAMES.inspectionPlans,
@@ -448,17 +541,19 @@ export class LocalDBRepository implements AppRepository {
   }
 
   async isEmpty(): Promise<boolean> {
-    const [thresholds, records, tickets, plans] = await Promise.all([
+    const [thresholds, records, tickets, plans, traces] = await Promise.all([
       this.getThresholds(),
       this.getInspectionRecords(),
       this.getAnomalyTickets(),
       this.getInspectionPlans(),
+      this.getAnomalyTraces(),
     ]);
     return (
       thresholds.length === 0 &&
       records.length === 0 &&
       tickets.length === 0 &&
-      plans.length === 0
+      plans.length === 0 &&
+      traces.length === 0
     );
   }
 
@@ -467,6 +562,7 @@ export class LocalDBRepository implements AppRepository {
       this.saveThresholds(DEFAULT_THRESHOLDS),
       this.saveAllInspectionRecords([]),
       this.saveAllAnomalyTickets(DEFAULT_TICKETS),
+      this.saveAllAnomalyTraces(DEFAULT_TRACES),
       this.saveAllInspectionPlans(DEFAULT_PLANS),
       this.saveFilters(DEFAULT_FILTERS),
     ]);
@@ -512,11 +608,12 @@ export class LocalDBRepository implements AppRepository {
       await this.seedDefaults();
     }
 
-    const [thresholds, inspectionRecords, anomalyTickets, inspectionPlans, filters] =
+    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters] =
       await Promise.all([
         this.getThresholds(),
         this.getInspectionRecords(),
         this.getAnomalyTickets(),
+        this.getAnomalyTraces(),
         this.getInspectionPlans(),
         this.getFilters(),
       ]);
@@ -532,6 +629,7 @@ export class LocalDBRepository implements AppRepository {
           : DEFAULT_THRESHOLDS,
       inspectionRecords,
       anomalyTickets,
+      anomalyTraces,
       inspectionPlans,
       filters,
       wasEmpty: empty,

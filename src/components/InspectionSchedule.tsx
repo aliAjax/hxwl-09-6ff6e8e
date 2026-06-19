@@ -103,7 +103,7 @@ function InspectionSchedule({
             <span>角色</span>
             <select
               value={form.role}
-              onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))}
+              onChange={(e) => setForm((p) => ({ ...p, role: e.target.value as any }))}
             >
               {PLAN_ROLES.map((r) => (
                 <option key={r}>{r}</option>

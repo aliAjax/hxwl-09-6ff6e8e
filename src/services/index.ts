@@ -1,6 +1,7 @@
 export * from "./ThresholdService";
 export * from "./InspectionService";
 export * from "./TicketService";
+export * from "./AnomalyTraceService";
 export * from "./PlanService";
 export * from "./ExportService";
 export * from "./SyncService";

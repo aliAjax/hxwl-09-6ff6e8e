@@ -10,6 +10,10 @@ import type {
   InspectionPlan,
   AnomalyTicket,
   FilterConditions,
+  AnomalyTrace,
+  RootCauseCategory,
+  TraceStatus,
+  ProcessingActionType,
 } from "./models";
 
 export const CLEAN_AREAS: CleanArea[] = ["ISO 5", "ISO 6", "ISO 7", "黄光区"];
@@ -77,17 +81,6 @@ export const RECORD_STATUS_CLASS: Record<"ok" | "watch" | "danger", string> = {
   ok: "record-status-ok",
   watch: "record-status-watch",
   danger: "record-status-danger",
-};
-
-export const DB_NAME = "hxwl09_cleanroom_db";
-export const DB_VERSION = 2;
-
-export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> = {
-  thresholds: "thresholds",
-  inspectionRecords: "inspectionRecords",
-  anomalyTickets: "anomalyTickets",
-  inspectionPlans: "inspectionPlans",
-  filters: "filters",
 };
 
 export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
@@ -179,3 +172,153 @@ export const DEFAULT_FILTERS: FilterConditions = {
   trendTypeFilter: "粒子异常",
   activeRole: "巡检员",
 };
+
+export const ROOT_CAUSE_CATEGORIES: RootCauseCategory[] = [
+  "过滤器堵塞",
+  "空调系统故障",
+  "人员操作不当",
+  "设备维护缺失",
+  "阀门故障",
+  "密封性问题",
+  "物料带入污染",
+  "未知原因",
+];
+
+export const TRACE_STATUSES: TraceStatus[] = [
+  "异常发生",
+  "调查中",
+  "处理中",
+  "待验证",
+  "已恢复",
+  "复发",
+  "需关注",
+];
+
+export const PROCESSING_ACTIONS: ProcessingActionType[] = [
+  "启动调查",
+  "更换过滤器",
+  "检修空调",
+  "校准压差阀",
+  "清洁消毒",
+  "排查设备",
+  "调整参数",
+  "其他操作",
+];
+
+export const TRACE_STATUS_TAG_CLASS: Record<TraceStatus, string> = {
+  "异常发生": "trace-status-occurred",
+  "调查中": "trace-status-investigating",
+  "处理中": "trace-status-processing",
+  "待验证": "trace-status-verifying",
+  "已恢复": "trace-status-recovered",
+  "复发": "trace-status-relapse",
+  "需关注": "trace-status-watch",
+};
+
+export const DB_NAME = "hxwl09_cleanroom_db";
+export const DB_VERSION = 3;
+
+export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> = {
+  thresholds: "thresholds",
+  inspectionRecords: "inspectionRecords",
+  anomalyTickets: "anomalyTickets",
+  inspectionPlans: "inspectionPlans",
+  filters: "filters",
+  anomalyTraces: "anomalyTraces",
+};
+
+export const DEFAULT_TRACES: AnomalyTrace[] = [
+  {
+    id: 1,
+    roomId: "CR-1201",
+    area: "ISO 5",
+    anomalyType: "粒子异常",
+    status: "处理中",
+    rootCause: "过滤器堵塞",
+    rootCauseDetail: "高效过滤器使用周期已超过18个月，压差增大导致过滤效率下降，粒子持续超标",
+    confidence: 85,
+    firstOccurredAt: "2026-06-17 14:30",
+    lastOccurredAt: "2026-06-19 08:15",
+    anomalyCount: 5,
+    recoveryCount: 2,
+    initialRecordId: 1,
+    triggerTicketId: 1,
+    linkedRecordIds: [1],
+    linkedTicketIds: [1],
+    processingSteps: [
+      {
+        id: 1,
+        timestamp: "2026-06-17 14:45",
+        operator: "张伟",
+        action: "启动调查",
+        description: "发现粒子计数持续超限，启动根因调查流程",
+      },
+      {
+        id: 2,
+        timestamp: "2026-06-18 09:20",
+        operator: "李娜",
+        action: "排查设备",
+        description: "检查风机、管道和过滤器，发现高效过滤器压差异常偏高",
+        beforeStatus: "运行中",
+        afterStatus: "待更换",
+      },
+    ],
+    closeCondition: {
+      particleStable: false,
+      pressureStable: true,
+      tempHumidityStable: true,
+      deviceNormal: false,
+      consecutiveNormalRecords: 0,
+      ticketsClosed: false,
+    },
+    canClose: false,
+    synced: true,
+  },
+  {
+    id: 2,
+    roomId: "CR-3305",
+    area: "ISO 7",
+    anomalyType: "压差异常",
+    status: "复发",
+    rootCause: "阀门故障",
+    rootCauseDetail: "压差调节阀定位器漂移，已修复但PID参数需要重新整定",
+    confidence: 72,
+    firstOccurredAt: "2026-06-16 10:00",
+    lastOccurredAt: "2026-06-19 07:30",
+    anomalyCount: 7,
+    recoveryCount: 3,
+    initialRecordId: 4,
+    triggerTicketId: 2,
+    linkedRecordIds: [4],
+    linkedTicketIds: [2, 3],
+    processingSteps: [
+      {
+        id: 1,
+        timestamp: "2026-06-16 10:15",
+        operator: "李娜",
+        action: "启动调查",
+        description: "压差低于下限报警，启动调查",
+      },
+      {
+        id: 2,
+        timestamp: "2026-06-17 15:30",
+        operator: "王强",
+        action: "校准压差阀",
+        description: "更换阀门定位器并重新标定",
+        beforeStatus: "8Pa",
+        afterStatus: "12Pa",
+      },
+    ],
+    closeCondition: {
+      particleStable: true,
+      pressureStable: false,
+      tempHumidityStable: false,
+      deviceNormal: true,
+      consecutiveNormalRecords: 1,
+      ticketsClosed: false,
+    },
+    canClose: false,
+    synced: true,
+  },
+];
+

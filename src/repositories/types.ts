@@ -1,11 +1,13 @@
 import type {
   AnomalyTicket,
   AnomalyTicketInput,
+  AnomalyTrace,
   AreaThreshold,
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
   TicketStatus,
+  TraceStatus,
 } from "../domain";
 
 export interface AppRepository {
@@ -20,6 +22,10 @@ export interface AppRepository {
   saveAnomalyTicket(ticket: AnomalyTicket): Promise<void>;
   saveAllAnomalyTickets(tickets: AnomalyTicket[]): Promise<void>;
   updateTicketStatus(ticketId: number, status: TicketStatus): Promise<void>;
+
+  getAnomalyTraces(): Promise<AnomalyTrace[]>;
+  saveAnomalyTrace(trace: AnomalyTrace): Promise<void>;
+  saveAllAnomalyTraces(traces: AnomalyTrace[]): Promise<void>;
 
   getInspectionPlans(): Promise<InspectionPlan[]>;
   saveInspectionPlan(plan: InspectionPlan): Promise<void>;
@@ -36,6 +42,7 @@ export interface AppRepository {
     thresholds: AreaThreshold[];
     inspectionRecords: InspectionRecord[];
     anomalyTickets: AnomalyTicket[];
+    anomalyTraces: AnomalyTrace[];
     inspectionPlans: InspectionPlan[];
     filters: FilterConditions;
     wasEmpty: boolean;
