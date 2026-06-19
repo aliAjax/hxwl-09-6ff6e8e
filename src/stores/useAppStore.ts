@@ -70,7 +70,11 @@ export interface UseAppStoreReturn {
       sourceRecordId?: number;
     },
     anomalyType: TicketAnomalyType
-  ) => Promise<AnomalyTicket>;
+  ) => Promise<{ ticket: AnomalyTicket; trace: AnomalyTrace }>;
+  createOrUpdateTraceFromTicket: (
+    ticket: AnomalyTicket,
+    record?: InspectionRecord
+  ) => Promise<AnomalyTrace>;
   updateAnomalyTicketStatus: (id: number, status: TicketStatus, processNote?: string) => void;
   createAnomalyTrace: (
     input: AnomalyTraceInput
@@ -303,65 +307,6 @@ export function useAppStore(): UseAppStoreReturn {
     [setAnomalyTickets]
   );
 
-  const createAnomalyTicket = useCallback(
-    async (
-      input: Omit<AnomalyTicket, "id" | "createdAt" | "status" | "processNotes">) => {
-      const ticket = await appService.tickets.create(input);
-      addAnomalyTicket(ticket);
-      return ticket;
-    },
-    [addAnomalyTicket]
-  );
-
-  const createTicketFromRecord = useCallback(
-    async (
-      readings: {
-        roomId: string;
-        area: CleanArea;
-        particle05um: number;
-        particle5um: number;
-        pressure: number;
-        temperature: number;
-        humidity: number;
-        sourceRecordId?: number;
-      },
-      anomalyType: TicketAnomalyType
-    ) => {
-      const ticket = await appService.tickets.createFromReadings(
-        readings,
-        anomalyType,
-        thresholds
-      );
-      addAnomalyTicket(ticket);
-      return ticket;
-    },
-    [thresholds, addAnomalyTicket]
-  );
-
-  const updateAnomalyTicketStatus = useCallback(
-    (id: number, status: TicketStatus, processNote?: string) => {
-      setAnomalyTickets((prev) =>
-        prev.map((t) => {
-          if (t.id !== id) return t;
-          const newNotes = [...(t.processNotes || [])];
-          if (processNote) {
-            newNotes.push({
-              note: processNote,
-              timestamp: formatNow(),
-              fromStatus: t.status,
-              toStatus: status,
-            });
-          }
-          return { ...t, status, processNotes: newNotes, synced: false };
-        })
-      );
-      localDBRepository.updateTicketStatus(id, status).catch((err) =>
-        console.error("Failed to update ticket status:", err)
-      );
-    },
-    [setAnomalyTickets]
-  );
-
   const addAnomalyTrace = useCallback(
     (trace: AnomalyTrace) => {
       setAnomalyTraces((prev) => [trace, ...prev]);
@@ -462,20 +407,25 @@ export function useAppStore(): UseAppStoreReturn {
       anomalyType: TicketAnomalyType,
       ticketId?: number
     ): Promise<AnomalyTrace> => {
-      const existing = appService.traces.findTraceForRoom(
+      const existing = appService.traces.findTraceForRoomIncludingRecovered(
         anomalyTraces,
         record.roomId,
         anomalyType
       );
 
       if (existing) {
-        const updated = appService.traces.updateOnNewRecord(
+        let updated = appService.traces.updateOnNewRecord(
           existing,
           record,
           thresholds
         );
         if (ticketId && !updated.linkedTicketIds.includes(ticketId)) {
-          updated.linkedTicketIds = [...updated.linkedTicketIds, ticketId];
+          const ticket = anomalyTickets.find(t => t.id === ticketId);
+          if (ticket) {
+            updated = appService.traces.updateOnTicketChange(updated, ticket, false);
+          } else {
+            updated.linkedTicketIds = [...updated.linkedTicketIds, ticketId];
+          }
         }
         updateAnomalyTrace(updated);
         return updated;
@@ -491,7 +441,127 @@ export function useAppStore(): UseAppStoreReturn {
         return newTrace;
       }
     },
+    [anomalyTraces, anomalyTickets, thresholds, updateAnomalyTrace, createAnomalyTrace]
+  );
+
+  const createOrUpdateTraceFromTicket = useCallback(
+    async (
+      ticket: AnomalyTicket,
+      record?: InspectionRecord
+    ): Promise<AnomalyTrace> => {
+      const existing = appService.traces.findTraceForRoomIncludingRecovered(
+        anomalyTraces,
+        ticket.roomId,
+        ticket.anomalyType
+      );
+
+      if (existing) {
+        let updated = appService.traces.updateOnTicketChange(
+          existing,
+          ticket,
+          true
+        );
+        if (record && !updated.linkedRecordIds.includes(record.id)) {
+          updated = appService.traces.updateOnNewRecord(updated, record, thresholds);
+        }
+        updateAnomalyTrace(updated);
+        return updated;
+      } else {
+        const traceInput: AnomalyTraceInput = {
+          roomId: ticket.roomId,
+          area: ticket.area,
+          anomalyType: ticket.anomalyType,
+          initialRecordId: record?.id,
+          triggerTicketId: ticket.id,
+        };
+        const newTrace = await createAnomalyTrace(traceInput);
+        return newTrace;
+      }
+    },
     [anomalyTraces, thresholds, updateAnomalyTrace, createAnomalyTrace]
+  );
+
+  const createAnomalyTicket = useCallback(
+    async (
+      input: Omit<AnomalyTicket, "id" | "createdAt" | "status" | "processNotes">) => {
+      const ticket = await appService.tickets.create(input);
+      addAnomalyTicket(ticket);
+      await createOrUpdateTraceFromTicket(ticket);
+      return ticket;
+    },
+    [addAnomalyTicket, createOrUpdateTraceFromTicket]
+  );
+
+  const createTicketFromRecord = useCallback(
+    async (
+      readings: {
+        roomId: string;
+        area: CleanArea;
+        particle05um: number;
+        particle5um: number;
+        pressure: number;
+        temperature: number;
+        humidity: number;
+        sourceRecordId?: number;
+      },
+      anomalyType: TicketAnomalyType
+    ) => {
+      const ticket = await appService.tickets.createFromReadings(
+        readings,
+        anomalyType,
+        thresholds
+      );
+      addAnomalyTicket(ticket);
+
+      const sourceRecord = readings.sourceRecordId
+        ? inspectionRecords.find(r => r.id === readings.sourceRecordId)
+        : undefined;
+      const trace = await createOrUpdateTraceFromTicket(ticket, sourceRecord);
+
+      return { ticket, trace };
+    },
+    [thresholds, addAnomalyTicket, inspectionRecords, createOrUpdateTraceFromTicket]
+  );
+
+  const updateAnomalyTicketStatus = useCallback(
+    (id: number, status: TicketStatus, processNote?: string) => {
+      const ticket = anomalyTickets.find(t => t.id === id);
+      if (ticket) {
+        const updatedTicket = {
+          ...ticket,
+          status,
+          processNotes: processNote
+            ? [...(ticket.processNotes || []), {
+                note: processNote,
+                timestamp: formatNow(),
+                fromStatus: ticket.status,
+                toStatus: status,
+              }]
+            : ticket.processNotes,
+          synced: false,
+        };
+        setAnomalyTickets((prev) =>
+          prev.map((t) => (t.id === id ? updatedTicket : t))
+        );
+        localDBRepository.updateTicketStatus(id, status).catch((err) =>
+          console.error("Failed to update ticket status:", err)
+        );
+        const relatedTrace = appService.traces.findTraceForRoomIncludingRecovered(
+          anomalyTraces,
+          ticket.roomId,
+          ticket.anomalyType
+        );
+        if (relatedTrace) {
+          const updatedTrace = appService.traces.updateOnTicketChange(
+            relatedTrace,
+            updatedTicket,
+            false
+          );
+          updateAnomalyTrace(updatedTrace);
+        }
+      }
+    },
+    [anomalyTickets, anomalyTraces, setAnomalyTickets, updateAnomalyTrace]
   );
 
   const addInspectionPlan = useCallback(
@@ -803,6 +873,7 @@ export function useAppStore(): UseAppStoreReturn {
     updateTraceStatus,
     markTraceRecovery,
     createOrUpdateTraceFromRecord,
+    createOrUpdateTraceFromTicket,
     addInspectionPlan,
     createInspectionPlan,
     updateInspectionPlanStatus,

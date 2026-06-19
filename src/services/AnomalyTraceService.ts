@@ -295,6 +295,9 @@ export class AnomalyTraceService {
       (trace.anomalyType === "温湿度偏移" &&
         (anomalies.temp || anomalies.humidity));
 
+    const isRecordNormal = anomalies.none;
+    const wasRecovered = trace.status === "已恢复" || trace.status === "待验证";
+
     let newStatus: TraceStatus = trace.status;
     let anomalyCount = trace.anomalyCount;
     let recoveryCount = trace.recoveryCount;
@@ -302,15 +305,76 @@ export class AnomalyTraceService {
       ? trace.linkedRecordIds
       : [...trace.linkedRecordIds, newRecord.id];
 
+    let processingSteps = [...trace.processingSteps];
+    const maxStepId = processingSteps.reduce((max, s) => Math.max(max, s.id), 0);
+
     if (anomalyMatches) {
       anomalyCount++;
-      if (trace.status === "已恢复" || trace.status === "待验证") {
+      if (wasRecovered) {
         newStatus = "复发";
+        const step: ProcessingStep = {
+          id: maxStepId + 1,
+          timestamp: newRecord.createdAt,
+          operator: TICKET_ASSIGNEES[0],
+          action: "其他操作",
+          description: `异常复发：检测到${trace.anomalyType}，此前已标记为${trace.status}，现更新为复发状态`,
+          beforeStatus: trace.status,
+          afterStatus: "复发",
+        };
+        processingSteps.push(step);
       } else if (trace.status === "异常发生") {
         newStatus = "调查中";
+        const step: ProcessingStep = {
+          id: maxStepId + 1,
+          timestamp: newRecord.createdAt,
+          operator: TICKET_ASSIGNEES[0],
+          action: "启动调查",
+          description: `新增异常记录触发自动调查，${trace.anomalyType}持续存在`,
+          beforeStatus: trace.status,
+          afterStatus: "调查中",
+        };
+        processingSteps.push(step);
+      } else if (trace.status === "调查中" || trace.status === "处理中" || trace.status === "复发") {
+        const step: ProcessingStep = {
+          id: maxStepId + 1,
+          timestamp: newRecord.createdAt,
+          operator: TICKET_ASSIGNEES[0],
+          action: "其他操作",
+          description: `追加异常记录：${trace.anomalyType}仍存在，累计异常${anomalyCount}次`,
+        };
+        processingSteps.push(step);
+      }
+    } else if (isRecordNormal && !wasRecovered) {
+      const consecutiveNormals = this.countConsecutiveNormals(
+        [newRecord],
+        thresholds
+      );
+      if (consecutiveNormals >= 1) {
+        newStatus = "待验证";
+        recoveryCount++;
+        const step: ProcessingStep = {
+          id: maxStepId + 1,
+          timestamp: newRecord.createdAt,
+          operator: TICKET_ASSIGNEES[0],
+          action: "其他操作",
+          description: `数据恢复正常：${trace.anomalyType}指标已恢复，进入待验证状态，累计恢复${recoveryCount}次`,
+          beforeStatus: trace.status,
+          afterStatus: "待验证",
+        };
+        processingSteps.push(step);
       }
     } else if (!anomalies.none && trace.status === "异常发生") {
       newStatus = "调查中";
+      const step: ProcessingStep = {
+        id: maxStepId + 1,
+        timestamp: newRecord.createdAt,
+        operator: TICKET_ASSIGNEES[0],
+        action: "启动调查",
+        description: `检测到其他类型异常，启动调查流程`,
+        beforeStatus: trace.status,
+        afterStatus: "调查中",
+      };
+      processingSteps.push(step);
     }
 
     return {
@@ -320,26 +384,85 @@ export class AnomalyTraceService {
       recoveryCount,
       lastOccurredAt: anomalyMatches ? newRecord.createdAt : trace.lastOccurredAt,
       linkedRecordIds: newLinkedRecordIds,
+      processingSteps,
     };
   }
 
   updateOnTicketChange(
     trace: AnomalyTrace,
-    ticket: AnomalyTicket
+    ticket: AnomalyTicket,
+    isNewTicket: boolean = false
   ): AnomalyTrace {
-    const newLinkedTicketIds = trace.linkedTicketIds.includes(ticket.id)
+    const ticketAlreadyLinked = trace.linkedTicketIds.includes(ticket.id);
+    const newLinkedTicketIds = ticketAlreadyLinked
       ? trace.linkedTicketIds
       : [...trace.linkedTicketIds, ticket.id];
 
     let newStatus = trace.status;
+    let processingSteps = [...trace.processingSteps];
+    let nextStepId = processingSteps.reduce((max, s) => Math.max(max, s.id), 0) + 1;
+
+    if (isNewTicket && !ticketAlreadyLinked) {
+      processingSteps.push({
+        id: nextStepId++,
+        timestamp: ticket.createdAt,
+        operator: ticket.assignee,
+        action: "其他操作",
+        description: `关联新工单 #${ticket.id}：${ticket.anomalyType}，负责人：${ticket.assignee}`,
+      });
+
+      if (trace.status === "异常发生" && ticket.status === "待处理") {
+        newStatus = "调查中";
+        processingSteps.push({
+          id: nextStepId++,
+          timestamp: ticket.createdAt,
+          operator: ticket.assignee,
+          action: "启动调查",
+          description: `工单已创建，自动启动调查流程`,
+          beforeStatus: trace.status,
+          afterStatus: "调查中",
+        });
+      }
+    } else if (!ticketAlreadyLinked) {
+      processingSteps.push({
+        id: nextStepId++,
+        timestamp: formatNow(),
+        operator: TICKET_ASSIGNEES[0],
+        action: "其他操作",
+        description: `关联现有工单 #${ticket.id}：${ticket.anomalyType}，当前状态：${ticket.status}`,
+      });
+    }
+
     if (ticket.status === "处理中" && trace.status === "异常发生") {
       newStatus = "处理中";
+      if (ticketAlreadyLinked) {
+        processingSteps.push({
+          id: nextStepId++,
+          timestamp: formatNow(),
+          operator: ticket.assignee,
+          action: "其他操作",
+          description: `工单 #${ticket.id} 开始处理，追踪状态更新为处理中`,
+          beforeStatus: trace.status,
+          afterStatus: "处理中",
+        });
+      }
+    }
+
+    if (ticket.status === "已关闭") {
+      processingSteps.push({
+        id: nextStepId++,
+        timestamp: formatNow(),
+        operator: ticket.assignee,
+        action: "其他操作",
+        description: `工单 #${ticket.id} 已关闭`,
+      });
     }
 
     return {
       ...trace,
       status: newStatus,
       linkedTicketIds: newLinkedTicketIds,
+      processingSteps,
     };
   }
 
@@ -410,6 +533,18 @@ export class AnomalyTraceService {
         t.roomId === roomId &&
         t.anomalyType === anomalyType &&
         t.status !== "已恢复"
+    );
+  }
+
+  findTraceForRoomIncludingRecovered(
+    traces: AnomalyTrace[],
+    roomId: string,
+    anomalyType: TicketAnomalyType
+  ): AnomalyTrace | undefined {
+    return traces.find(
+      (t) =>
+        t.roomId === roomId &&
+        t.anomalyType === anomalyType
     );
   }
 

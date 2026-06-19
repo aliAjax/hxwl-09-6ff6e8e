@@ -29,7 +29,7 @@ const sampleRecords: SampleRecord[] = [
 
 interface PreviewTableProps {
   thresholds: AreaThreshold[];
-  onCreateTicket: (record: SampleRecord, anomalyType: TicketAnomalyType) => void;
+  onCreateTicket: (record: SampleRecord, anomalyType: TicketAnomalyType) => Promise<void> | void;
   hasTicketForRecord: (recordId: number, anomalyType: TicketAnomalyType) => boolean;
 }
 
@@ -105,10 +105,10 @@ export default function PreviewTable({ thresholds, onCreateTicket, hasTicketForR
                               key={type}
                               className={`ticket-create-btn ${hasTicket ? "disabled" : ""}`}
                               disabled={hasTicket}
-                              onClick={() => {
+                              onClick={async () => {
                                 if (!hasTicket) {
                                   const remark = buildTicketRemark(record, type, thresholds);
-                                  onCreateTicket(
+                                  await onCreateTicket(
                                     { ...record },
                                     type,
                                   );

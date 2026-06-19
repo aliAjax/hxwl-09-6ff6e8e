@@ -124,11 +124,11 @@ function App() {
     createAnomalyTicket(ticketData);
   };
 
-  const handleCreateTicketFromRecord = (
+  const handleCreateTicketFromRecord = async (
     record: SampleRecord,
     anomalyType: TicketAnomalyType
   ) => {
-    createTicketFromRecord(
+    await createTicketFromRecord(
       {
         roomId: record.roomId,
         area: record.area,
@@ -152,10 +152,59 @@ function App() {
     return [String(particle), String(pressure), String(temphum), String(total)];
   }, [thresholds]);
 
-  const handleSubmitInspectionRecord = (record: InspectionRecord, planId?: number) => {
+  const handleSubmitInspectionRecord = async (record: InspectionRecord, planId?: number) => {
     addInspectionRecord(record);
     if (planId) {
       linkRecordToPlan(planId, record.id);
+    }
+
+    const anomalies = checkAnomalies(record, thresholds);
+    const anomalyTypes: TicketAnomalyType[] = [];
+    if (anomalies.particle) anomalyTypes.push("粒子异常");
+    if (anomalies.pressure) anomalyTypes.push("压差异常");
+    if (anomalies.temp || anomalies.humidity) anomalyTypes.push("温湿度偏移");
+
+    for (const anomalyType of anomalyTypes) {
+      const hasExistingTicket = hasTicketForRecord(record.id, anomalyType);
+      if (!hasExistingTicket) {
+        try {
+          const { ticket } = await createTicketFromRecord(
+            {
+              roomId: record.roomId,
+              area: record.area,
+              particle05um: record.particle05um,
+              particle5um: record.particle5um,
+              pressure: record.pressure,
+              temperature: record.temperature,
+              humidity: record.humidity,
+              sourceRecordId: record.id,
+            },
+            anomalyType
+          );
+          await createOrUpdateTraceFromRecord(record, anomalyType, ticket.id);
+        } catch (e) {
+          console.error("自动创建工单或追踪失败:", e);
+        }
+      } else {
+        try {
+          await createOrUpdateTraceFromRecord(record, anomalyType);
+        } catch (e) {
+          console.error("更新追踪失败:", e);
+        }
+      }
+    }
+
+    if (anomalies.none) {
+      const roomTraces = getTracesForRoom(record.roomId);
+      for (const trace of roomTraces) {
+        if (trace.status !== "已恢复") {
+          try {
+            await createOrUpdateTraceFromRecord(record, trace.anomalyType);
+          } catch (e) {
+            console.error("更新追踪恢复状态失败:", e);
+          }
+        }
+      }
     }
   };
 
