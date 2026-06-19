@@ -152,6 +152,24 @@ function countPendingTicketsByDate(
   return counts;
 }
 
+function hasRecordsInDateRange(
+  records: InspectionRecord[],
+  days: number
+): boolean {
+  const dateKeys = getRecentDateKeys(days);
+  const dateSet = new Set(dateKeys);
+  return records.some((r) => dateSet.has(getDateKey(r.createdAt)));
+}
+
+function hasTicketsInDateRange(
+  tickets: AnomalyTicket[],
+  days: number
+): boolean {
+  const dateKeys = getRecentDateKeys(days);
+  const dateSet = new Set(dateKeys);
+  return tickets.some((t) => dateSet.has(getDateKey(t.createdAt)));
+}
+
 export function calculateTrendData(
   records: InspectionRecord[],
   tickets: AnomalyTicket[],
@@ -165,11 +183,14 @@ export function calculateTrendData(
   const filteredTickets = filterTicketsByArea(tickets, area);
 
   let countsByDate: Record<string, number>;
+  let hasData: boolean;
 
   if (type === "待处理数量") {
     countsByDate = countPendingTicketsByDate(filteredTickets, days);
+    hasData = hasTicketsInDateRange(filteredTickets, days);
   } else {
     countsByDate = countAnomaliesByDate(filteredRecords, thresholds, type, days);
+    hasData = hasRecordsInDateRange(filteredRecords, days);
   }
 
   const data: TrendDataPoint[] = dateKeys.map((dateKey) => ({
@@ -179,7 +200,6 @@ export function calculateTrendData(
 
   const values = data.map((d) => d.value);
   const summary = computeSummary(values);
-  const hasData = values.some((v) => v > 0);
 
   return { data, summary, hasData };
 }
