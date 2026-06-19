@@ -64,7 +64,7 @@ export interface AnomalyTraceInput {
   triggerTicketId?: number;
 }
 
-export interface AnomalyTrace extends AnomalyTraceInput {
+export interface AnomalyTrace extends AnomalyTraceInput, Partial<VersionedEntity> {
   id: number;
   status: TraceStatus;
   rootCause?: RootCauseCategory;
@@ -87,7 +87,12 @@ export interface ThresholdRange {
   max: number;
 }
 
-export interface AreaThreshold {
+export interface VersionedEntity {
+  version: number;
+  updatedAt: string;
+}
+
+export interface AreaThreshold extends Partial<VersionedEntity> {
   area: CleanArea;
   particle05um: number;
   particle5um: number;
@@ -96,7 +101,7 @@ export interface AreaThreshold {
   humidity: ThresholdRange;
 }
 
-export interface InspectionPlan {
+export interface InspectionPlan extends Partial<VersionedEntity> {
   id: number;
   date: string;
   area: CleanArea;
@@ -119,7 +124,7 @@ export interface InspectionRecordInput {
   remark: string;
 }
 
-export interface InspectionRecord extends InspectionRecordInput {
+export interface InspectionRecord extends InspectionRecordInput, Partial<VersionedEntity> {
   id: number;
   createdAt: string;
   status: RecordStatus;
@@ -143,7 +148,7 @@ export interface AnomalyTicketInput {
   sourceRecordId?: number;
 }
 
-export interface AnomalyTicket extends AnomalyTicketInput {
+export interface AnomalyTicket extends AnomalyTicketInput, Partial<VersionedEntity> {
   id: number;
   status: TicketStatus;
   createdAt: string;
@@ -180,16 +185,53 @@ export interface SyncStatus {
   failedRecords: number;
   failedTickets: number;
   failedPlans: number;
+  conflictCount: number;
   isOnline: boolean;
   lastSyncAt?: string;
   queueTotal: number;
   queuePending: number;
   queueFailed: number;
+  queueConflict: number;
 }
 
-export type SyncEntityType = "inspectionRecord" | "anomalyTicket" | "inspectionPlan" | "anomalyTrace";
-export type SyncItemStatus = "pending" | "syncing" | "failed" | "synced";
-export type SyncAction = "create" | "update";
+export type SyncEntityType =
+  | "inspectionRecord"
+  | "anomalyTicket"
+  | "inspectionPlan"
+  | "anomalyTrace"
+  | "threshold";
+export type SyncItemStatus =
+  | "pending"
+  | "syncing"
+  | "failed"
+  | "synced"
+  | "conflict";
+export type SyncAction = "create" | "update" | "delete";
+
+export type SyncResultStatus = "success" | "failed" | "conflict";
+
+export interface SyncConflict {
+  id: number;
+  entityType: SyncEntityType;
+  entityId: number | string;
+  detectedAt: string;
+  resolvedAt?: string;
+  resolution?: "keepLocal" | "useRemote" | "manual";
+  localSnapshot: unknown;
+  remoteSnapshot: unknown;
+  localVersion?: number;
+  remoteVersion?: number;
+  localUpdatedAt?: string;
+  remoteUpdatedAt?: string;
+  errorMessage?: string;
+}
+
+export type SyncableEntity =
+  | InspectionRecord
+  | AnomalyTicket
+  | InspectionPlan
+  | AnomalyTrace
+  | AreaThreshold;
 
 export interface SyncQueueItem {
   id: number;
@@ -216,7 +258,12 @@ export interface SyncQueueDetailedStatus {
 
 export interface SyncItemResult {
   success: boolean;
+  status: SyncResultStatus;
   errorMessage?: string;
+  remoteVersion?: number;
+  remoteUpdatedAt?: string;
+  remoteSnapshot?: unknown;
+  isConflict?: boolean;
 }
 
 export type MigrationStatus = "pending" | "running" | "success" | "failed" | "skipped";
@@ -265,6 +312,7 @@ export interface BackupData {
     filters: FilterConditions;
     anomalyTraces: AnomalyTrace[];
     syncQueue: SyncQueueItem[];
+    syncConflicts: SyncConflict[];
   };
 }
 
@@ -276,6 +324,7 @@ export interface DBSchema {
   filters: FilterConditions;
   anomalyTraces: AnomalyTrace[];
   syncQueue: SyncQueueItem[];
+  syncConflicts: SyncConflict[];
   migrationLogs: MigrationLog[];
   migrationFailedRecords: MigrationFailedRecord[];
 }

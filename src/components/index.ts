@@ -11,3 +11,4 @@ export { default as SyncStatusBar } from "./SyncStatusBar";
 export { default as SyncQueuePanel } from "./SyncQueuePanel";
 export { default as AnomalyTraceList } from "./AnomalyTraceList";
 export { default as AnomalyTraceDetail } from "./AnomalyTraceDetail";
+export { default as ConflictResolutionDialog } from "./ConflictResolutionDialog";

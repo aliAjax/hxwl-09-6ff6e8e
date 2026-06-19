@@ -17,6 +17,7 @@ import type {
   ProcessingActionType,
   RecordStatusResult,
   RootCauseCategory,
+  SyncConflict,
   SyncQueueItem,
   SyncStatus,
   TicketAnomalyType,
@@ -45,6 +46,7 @@ export interface UseAppStoreReturn {
   filters: FilterConditions;
   syncStatus: SyncStatus;
   syncQueue: SyncQueueItem[];
+  syncConflicts: SyncConflict[];
   isLoading: boolean;
   isMigrating: boolean;
   migrationContext: MigrationContext | null;
@@ -175,6 +177,10 @@ export interface UseAppStoreReturn {
   removeQueueItem: (itemId: number) => Promise<void>;
   clearSyncedQueueItems: () => Promise<void>;
   refreshSyncQueue: () => Promise<void>;
+  resolveConflict: (conflictId: number, resolution: "keepLocal" | "useRemote") => Promise<{ success: boolean; errorMessage?: string }>;
+  refreshSyncConflicts: () => Promise<void>;
+  clearResolvedConflicts: () => Promise<void>;
+  removeConflict: (conflictId: number) => Promise<void>;
   backupData: () => Promise<BackupData>;
   backupAndDownload: () => Promise<BackupData>;
   restoreBackup: (backup: BackupData) => Promise<boolean>;
@@ -215,24 +221,29 @@ export function useAppStore(): UseAppStoreReturn {
     failedRecords: 0,
     failedTickets: 0,
     failedPlans: 0,
+    conflictCount: 0,
     isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
     queueTotal: 0,
     queuePending: 0,
     queueFailed: 0,
+    queueConflict: 0,
   });
   const [syncQueue, setSyncQueueState] = useState<SyncQueueItem[]>([]);
+  const [syncConflicts, setSyncConflictsState] = useState<SyncConflict[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationContext, setMigrationContext] = useState<MigrationContext | null>(null);
   const [wasInitialized, setWasInitialized] = useState(false);
 
   const refreshSyncStatus = useCallback(async () => {
-    const [ss, queue] = await Promise.all([
+    const [ss, queue, conflicts] = await Promise.all([
       appService.getSyncStatus(),
       appService.getSyncQueue(),
+      appService.getUnresolvedConflicts(),
     ]);
     setSyncStatusState(ss);
     setSyncQueueState(queue);
+    setSyncConflictsState(conflicts);
   }, []);
 
   useEffect(() => {
@@ -266,6 +277,7 @@ export function useAppStore(): UseAppStoreReturn {
         setInspectionPlansState(data.inspectionPlans);
         setFiltersState(data.filters);
         setSyncQueueState((data as any).syncQueue || []);
+        setSyncConflictsState((data as any).syncConflicts || []);
         setWasInitialized(data.wasEmpty);
 
         const migratedCount = await appService.migrateUnsyncedToQueue();
@@ -275,8 +287,10 @@ export function useAppStore(): UseAppStoreReturn {
 
         const ss = await appService.getSyncStatus();
         const queue = await appService.getSyncQueue();
+        const conflicts = await appService.getUnresolvedConflicts();
         setSyncStatusState(ss);
         setSyncQueueState(queue);
+        setSyncConflictsState(conflicts);
         setIsLoading(false);
         setIsMigrating(false);
       } catch (err) {
@@ -298,14 +312,24 @@ export function useAppStore(): UseAppStoreReturn {
       await refreshSyncStatus();
     });
 
+    const unsubscribeConflict = appService.onConflictChange(async () => {
+      if (!mounted) return;
+      await refreshSyncStatus();
+    });
+
     return () => {
       mounted = false;
       unsubscribeOnline();
       unsubscribeQueue();
+      unsubscribeConflict();
     };
   }, [refreshSyncStatus]);
 
   const refreshSyncQueue = useCallback(async () => {
+    await refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const refreshSyncConflicts = useCallback(async () => {
     await refreshSyncStatus();
   }, [refreshSyncStatus]);
 
@@ -1015,6 +1039,7 @@ export function useAppStore(): UseAppStoreReturn {
       setInspectionPlansState(data.inspectionPlans);
       setFiltersState(data.filters);
       setSyncQueueState((data as any).syncQueue || []);
+      setSyncConflictsState((data as any).syncConflicts || []);
       await refreshSyncStatus();
     }
     return success;
@@ -1041,6 +1066,7 @@ export function useAppStore(): UseAppStoreReturn {
     setInspectionPlansState(data.inspectionPlans);
     setFiltersState(data.filters);
     setSyncQueueState((data as any).syncQueue || []);
+    setSyncConflictsState((data as any).syncConflicts || []);
     await refreshSyncStatus();
   }, [refreshSyncStatus]);
 
@@ -1054,6 +1080,7 @@ export function useAppStore(): UseAppStoreReturn {
     setInspectionPlansState(data.inspectionPlans);
     setFiltersState(data.filters);
     setSyncQueueState((data as any).syncQueue || []);
+    setSyncConflictsState((data as any).syncConflicts || []);
     await refreshSyncStatus();
   }, [refreshSyncStatus]);
 
@@ -1075,6 +1102,7 @@ export function useAppStore(): UseAppStoreReturn {
       setInspectionPlansState(data.inspectionPlans);
       setFiltersState(data.filters);
       setSyncQueueState((data as any).syncQueue || []);
+      setSyncConflictsState((data as any).syncConflicts || []);
       await refreshSyncStatus();
 
       return result;
@@ -1094,6 +1122,7 @@ export function useAppStore(): UseAppStoreReturn {
     setInspectionPlansState(data.inspectionPlans);
     setFiltersState(data.filters);
     setSyncQueueState((data as any).syncQueue || []);
+    setSyncConflictsState((data as any).syncConflicts || []);
     setWasInitialized(true);
     await refreshSyncStatus();
   }, [refreshSyncStatus]);
@@ -1135,6 +1164,25 @@ export function useAppStore(): UseAppStoreReturn {
     await refreshSyncStatus();
   }, [refreshSyncStatus]);
 
+  const resolveConflict = useCallback(async (
+    conflictId: number,
+    resolution: "keepLocal" | "useRemote"
+  ): Promise<{ success: boolean; errorMessage?: string }> => {
+    const result = await appService.resolveConflict(conflictId, resolution);
+    await refreshSyncStatus();
+    return result;
+  }, [refreshSyncStatus]);
+
+  const clearResolvedConflicts = useCallback(async (): Promise<void> => {
+    await appService.clearResolvedConflicts();
+    await refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const removeConflict = useCallback(async (conflictId: number): Promise<void> => {
+    await appService.removeConflict(conflictId);
+    await refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
   return {
     thresholds,
     inspectionRecords,
@@ -1144,6 +1192,7 @@ export function useAppStore(): UseAppStoreReturn {
     filters,
     syncStatus,
     syncQueue,
+    syncConflicts,
     isLoading,
     isMigrating,
     migrationContext,
@@ -1207,6 +1256,10 @@ export function useAppStore(): UseAppStoreReturn {
     removeQueueItem,
     clearSyncedQueueItems,
     refreshSyncQueue,
+    resolveConflict,
+    refreshSyncConflicts,
+    clearResolvedConflicts,
+    removeConflict,
     backupData,
     backupAndDownload,
     restoreBackup,

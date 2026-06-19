@@ -6,6 +6,7 @@ import type {
   InspectionPlan,
   InspectionRecord,
   SyncAction,
+  SyncConflict,
   SyncEntityType,
   SyncQueueDetailedStatus,
   SyncQueueItem,
@@ -30,6 +31,7 @@ export interface AppState {
   filters: FilterConditions;
   syncStatus: SyncStatus;
   syncQueue: SyncQueueItem[];
+  syncConflicts: SyncConflict[];
   isLoading: boolean;
 }
 
@@ -158,5 +160,36 @@ export class AppService {
 
   onQueueChange(callback: () => void): () => void {
     return this.sync.onQueueChange(callback);
+  }
+
+  onConflictChange(callback: () => void): () => void {
+    return this.sync.onConflictChange(callback);
+  }
+
+  async getSyncConflicts(): Promise<SyncConflict[]> {
+    return this.sync.getConflicts();
+  }
+
+  async getUnresolvedConflicts(): Promise<SyncConflict[]> {
+    return this.sync.getUnresolvedConflicts();
+  }
+
+  async resolveConflict(
+    conflictId: number,
+    resolution: "keepLocal" | "useRemote"
+  ): Promise<{ success: boolean; errorMessage?: string }> {
+    return this.sync.resolveConflict(conflictId, resolution);
+  }
+
+  async clearResolvedConflicts(): Promise<void> {
+    return this.sync.clearResolvedConflicts();
+  }
+
+  async removeConflict(conflictId: number): Promise<void> {
+    return this.sync.removeConflict(conflictId);
+  }
+
+  setSimulateConflicts(enabled: boolean): void {
+    this.sync.setSimulateConflicts(enabled);
   }
 }

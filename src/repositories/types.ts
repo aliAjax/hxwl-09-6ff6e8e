@@ -6,6 +6,7 @@ import type {
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
+  SyncConflict,
   SyncQueueItem,
   SyncEntityType,
   SyncItemResult,
@@ -47,6 +48,14 @@ export interface AppRepository {
   clearSyncedQueueItems(): Promise<void>;
   getNextSyncQueueId(): Promise<number>;
 
+  getSyncConflicts(): Promise<SyncConflict[]>;
+  saveSyncConflict(conflict: SyncConflict): Promise<void>;
+  saveAllSyncConflicts(conflicts: SyncConflict[]): Promise<void>;
+  updateSyncConflict(conflict: SyncConflict): Promise<void>;
+  removeSyncConflict(id: number): Promise<void>;
+  clearResolvedConflicts(): Promise<void>;
+  getNextSyncConflictId(): Promise<number>;
+
   isEmpty(): Promise<boolean>;
   seedDefaults(): Promise<void>;
   clearAll(): Promise<void>;
@@ -58,6 +67,7 @@ export interface AppRepository {
     inspectionPlans: InspectionPlan[];
     filters: FilterConditions;
     syncQueue: SyncQueueItem[];
+    syncConflicts: SyncConflict[];
     wasEmpty: boolean;
   }>;
 }
@@ -67,12 +77,18 @@ export interface SyncResult {
   syncedTickets: number;
   syncedPlans: number;
   syncedTraces: number;
+  conflictedRecords: number;
+  conflictedTickets: number;
+  conflictedPlans: number;
+  conflictedTraces: number;
   errors: string[];
   detailedResults: Array<{
     entityType: SyncEntityType;
     entityId: number;
     success: boolean;
+    status: "success" | "failed" | "conflict";
     errorMessage?: string;
+    conflictId?: number;
   }>;
 }
 
@@ -81,6 +97,7 @@ export interface RemoteSyncRepository {
   pushTicket(ticket: AnomalyTicket): Promise<SyncItemResult>;
   pushPlan(plan: InspectionPlan): Promise<SyncItemResult>;
   pushTrace(trace: AnomalyTrace): Promise<SyncItemResult>;
+  pushThreshold(threshold: AreaThreshold): Promise<SyncItemResult>;
   pullThresholds(): Promise<AreaThreshold[] | null>;
   pullPlans(): Promise<InspectionPlan[] | null>;
   syncAll(
@@ -90,4 +107,5 @@ export interface RemoteSyncRepository {
   ): Promise<SyncResult>;
   isOnline(): boolean;
   onOnlineChange(callback: (online: boolean) => void): () => void;
+  setSimulateConflicts?(enabled: boolean): void;
 }

@@ -18,6 +18,7 @@ import type {
   InspectionRecord,
   MigrationFailedRecord,
   MigrationLog,
+  SyncConflict,
   SyncQueueItem,
   TicketStatus,
 } from "../domain/models";
@@ -140,6 +141,51 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("failedAt", "failedAt", { unique: false });
         }
       }
+
+      if (oldVersion < 6) {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.syncConflicts)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.syncConflicts, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("entityType", "entityType", { unique: false });
+          store.createIndex("entityId", "entityId", { unique: false });
+          store.createIndex("detectedAt", "detectedAt", { unique: false });
+          store.createIndex("resolvedAt", "resolvedAt", { unique: false });
+        }
+
+        const versionedStores = [
+          DB_STORE_NAMES.thresholds,
+          DB_STORE_NAMES.inspectionRecords,
+          DB_STORE_NAMES.anomalyTickets,
+          DB_STORE_NAMES.inspectionPlans,
+          DB_STORE_NAMES.anomalyTraces,
+        ];
+        const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+        for (const sn of versionedStores) {
+          if (db.objectStoreNames.contains(sn)) {
+            const tx = (event.target as IDBOpenDBRequest).transaction!;
+            const s = tx.objectStore(sn);
+            s.openCursor().onsuccess = (e: any) => {
+              const cursor = e.target.result;
+              if (cursor) {
+                const v = cursor.value;
+                let changed = false;
+                if (typeof v.version !== "number") {
+                  v.version = 1;
+                  changed = true;
+                }
+                if (!v.updatedAt) {
+                  v.updatedAt = v.createdAt ?? now;
+                  changed = true;
+                }
+                if (changed) cursor.update(v);
+                cursor.continue();
+              }
+            };
+          }
+        }
+      }
     };
   });
 }
@@ -181,6 +227,8 @@ function backfillThreshold(
     pressure: { min: 0, max: 0 },
     temperature: { min: 0, max: 0 },
     humidity: { min: 0, max: 0 },
+    version: 1,
+    updatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
   };
   const base = defaults ?? fallback;
 
@@ -220,6 +268,8 @@ function backfillThreshold(
           ? data.humidity.max
           : base.humidity.max,
     },
+    version: typeof data.version === "number" ? data.version : base.version ?? 1,
+    updatedAt: data.updatedAt ?? base.updatedAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
   };
 }
 
@@ -244,6 +294,8 @@ function backfillInspectionRecord(
     status: data.status ?? "稳定",
     planId: data.planId,
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.createdAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
   };
 }
 
@@ -264,6 +316,8 @@ function backfillAnomalyTicket(
     sourceRecordId: data.sourceRecordId,
     processNotes: data.processNotes ?? [],
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.createdAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
   };
 }
 
@@ -279,6 +333,8 @@ function backfillInspectionPlan(
     status: data.status ?? "未开始",
     linkedRecordIds: data.linkedRecordIds ?? [],
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.date ?? new Date().toISOString().slice(0, 16).replace("T", " "),
   };
 }
 
@@ -329,6 +385,8 @@ function backfillAnomalyTrace(
     },
     canClose: data.canClose ?? false,
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.lastOccurredAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
   };
 }
 
@@ -348,6 +406,26 @@ function backfillSyncQueueItem(
     syncedAt: data.syncedAt,
     dataSnapshot: data.dataSnapshot as any,
     syncFingerprint: data.syncFingerprint ?? "",
+  };
+}
+
+function backfillSyncConflict(
+  data: Partial<import("../domain").SyncConflict> & { id: number }
+): import("../domain").SyncConflict {
+  return {
+    id: data.id,
+    entityType: (data.entityType as import("../domain").SyncConflict["entityType"]) ?? "inspectionRecord",
+    entityId: data.entityId ?? 0,
+    detectedAt: data.detectedAt ?? new Date().toISOString().slice(0, 16).replace("T", " "),
+    resolvedAt: data.resolvedAt,
+    resolution: data.resolution,
+    localSnapshot: data.localSnapshot ?? {},
+    remoteSnapshot: data.remoteSnapshot ?? {},
+    localVersion: data.localVersion,
+    remoteVersion: data.remoteVersion,
+    localUpdatedAt: data.localUpdatedAt,
+    remoteUpdatedAt: data.remoteUpdatedAt,
+    errorMessage: data.errorMessage,
   };
 }
 
@@ -683,6 +761,101 @@ export class LocalDBRepository implements AppRepository {
     return Math.max(...queue.map((i) => i.id)) + 1;
   }
 
+  async getSyncConflicts(): Promise<SyncConflict[]> {
+    try {
+      return withStore(DB_STORE_NAMES.syncConflicts, "readonly", async (store) => {
+        const results = await promisifyRequest<SyncConflict[]>(
+          store.getAll() as IDBRequest<SyncConflict[]>
+        );
+        return results
+          .map((r) =>
+            backfillSyncConflict(
+              r as Partial<SyncConflict> & { id: number }
+            )
+          )
+          .sort((a, b) => {
+            if (!a.detectedAt && !b.detectedAt) return 0;
+            if (!a.detectedAt) return 1;
+            if (!b.detectedAt) return -1;
+            return b.detectedAt.localeCompare(a.detectedAt);
+          });
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  async saveSyncConflict(conflict: SyncConflict): Promise<void> {
+    try {
+      await withStore(DB_STORE_NAMES.syncConflicts, "readwrite", (store) => {
+        return promisifyRequest(store.put(conflict));
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async saveAllSyncConflicts(conflicts: SyncConflict[]): Promise<void> {
+    try {
+      return withStore(DB_STORE_NAMES.syncConflicts, "readwrite", async (store) => {
+        await promisifyRequest(store.clear());
+        for (const c of conflicts) {
+          await promisifyRequest(store.put(c));
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async updateSyncConflict(conflict: SyncConflict): Promise<void> {
+    try {
+      await withStore(DB_STORE_NAMES.syncConflicts, "readwrite", async (store) => {
+        const existing = await promisifyRequest(
+          store.get(conflict.id) as IDBRequest<SyncConflict>
+        );
+        if (existing) {
+          await promisifyRequest(store.put(conflict));
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async removeSyncConflict(id: number): Promise<void> {
+    try {
+      await withStore(DB_STORE_NAMES.syncConflicts, "readwrite", (store) => {
+        return promisifyRequest(store.delete(id));
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async clearResolvedConflicts(): Promise<void> {
+    try {
+      return withStore(DB_STORE_NAMES.syncConflicts, "readwrite", async (store) => {
+        const items = await promisifyRequest<SyncConflict[]>(
+          store.getAll() as IDBRequest<SyncConflict[]>
+        );
+        for (const item of items) {
+          if (item.resolvedAt) {
+            await promisifyRequest(store.delete(item.id));
+          }
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  async getNextSyncConflictId(): Promise<number> {
+    const conflicts = await this.getSyncConflicts();
+    if (conflicts.length === 0) return 1;
+    return Math.max(...conflicts.map((c) => c.id)) + 1;
+  }
+
   async getFilters(): Promise<FilterConditions> {
     return withStore(DB_STORE_NAMES.filters, "readonly", async (store) => {
       const result = await promisifyRequest(
@@ -761,13 +934,14 @@ export class LocalDBRepository implements AppRepository {
   }
 
   async isEmpty(): Promise<boolean> {
-    const [thresholds, records, tickets, plans, traces, queue] = await Promise.all([
+    const [thresholds, records, tickets, plans, traces, queue, conflicts] = await Promise.all([
       this.getThresholds(),
       this.getInspectionRecords(),
       this.getAnomalyTickets(),
       this.getInspectionPlans(),
       this.getAnomalyTraces(),
       this.getSyncQueue(),
+      this.getSyncConflicts(),
     ]);
     return (
       thresholds.length === 0 &&
@@ -775,7 +949,8 @@ export class LocalDBRepository implements AppRepository {
       tickets.length === 0 &&
       plans.length === 0 &&
       traces.length === 0 &&
-      queue.length === 0
+      queue.length === 0 &&
+      conflicts.length === 0
     );
   }
 
@@ -788,6 +963,7 @@ export class LocalDBRepository implements AppRepository {
       this.saveAllInspectionPlans(DEFAULT_PLANS),
       this.saveFilters(DEFAULT_FILTERS),
       this.saveAllSyncQueueItems([]),
+      this.saveAllSyncConflicts([]),
     ]);
   }
 
@@ -831,7 +1007,7 @@ export class LocalDBRepository implements AppRepository {
       await this.seedDefaults();
     }
 
-    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters, syncQueue] =
+    const [thresholds, inspectionRecords, anomalyTickets, anomalyTraces, inspectionPlans, filters, syncQueue, syncConflicts] =
       await Promise.all([
         this.getThresholds(),
         this.getInspectionRecords(),
@@ -840,6 +1016,7 @@ export class LocalDBRepository implements AppRepository {
         this.getInspectionPlans(),
         this.getFilters(),
         this.getSyncQueue(),
+        this.getSyncConflicts(),
       ]);
 
     const orderedThresholds = DEFAULT_THRESHOLDS.map(
@@ -857,6 +1034,7 @@ export class LocalDBRepository implements AppRepository {
       inspectionPlans,
       filters,
       syncQueue,
+      syncConflicts,
       wasEmpty: empty,
     };
   }

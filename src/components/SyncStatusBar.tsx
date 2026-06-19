@@ -5,6 +5,7 @@ import SyncQueuePanel from "./SyncQueuePanel";
 interface SyncStatusBarProps {
   syncStatus: SyncStatus;
   syncQueue: SyncQueueItem[];
+  syncConflicts?: any[];
   onSyncNow?: () => void;
   onProcessQueue?: (
     scope?: "all" | "pending" | "failed",
@@ -14,29 +15,36 @@ interface SyncStatusBarProps {
   onRetryItem?: (itemId: number) => Promise<any>;
   onRemoveItem?: (itemId: number) => Promise<void>;
   onClearSynced?: () => Promise<void>;
+  onResolveConflict?: (conflictId: number, resolution: "keepLocal" | "useRemote") => Promise<any>;
+  onOpenConflictPanel?: () => void;
 }
 
 export default function SyncStatusBar({
   syncStatus,
   syncQueue,
+  syncConflicts,
   onSyncNow,
   onProcessQueue,
   onRetryFailed,
   onRetryItem,
   onRemoveItem,
   onClearSynced,
+  onResolveConflict,
+  onOpenConflictPanel,
 }: SyncStatusBarProps) {
   const [expanded, setExpanded] = useState(false);
 
   const totalPending = syncStatus.queuePending;
   const totalFailed = syncStatus.queueFailed;
-  const total = totalPending + totalFailed;
+  const totalConflict = syncStatus.queueConflict ?? syncStatus.conflictCount ?? 0;
+  const total = totalPending + totalFailed + totalConflict;
 
   const pendingRecs = syncStatus.pendingRecords + syncStatus.failedRecords;
   const pendingTickets = syncStatus.pendingTickets + syncStatus.failedTickets;
   const pendingPlans = syncStatus.pendingPlans + syncStatus.failedPlans;
 
   const showQueueBadge = syncStatus.queueTotal > 0;
+  const conflictCount = syncStatus.conflictCount ?? 0;
 
   const handleSyncAll = async () => {
     if (onProcessQueue) {
@@ -59,6 +67,16 @@ export default function SyncStatusBar({
           {totalFailed > 0 && (
             <span className="sync-failed-badge" title="存在同步失败项">
               {totalFailed} 失败
+            </span>
+          )}
+          {conflictCount > 0 && (
+            <span
+              className="sync-conflict-badge"
+              title="存在同步冲突，需要解决"
+              onClick={onOpenConflictPanel}
+              style={{ cursor: onOpenConflictPanel ? "pointer" : "default" }}
+            >
+              {conflictCount} 冲突
             </span>
           )}
         </div>
@@ -88,6 +106,9 @@ export default function SyncStatusBar({
               )}
               {totalFailed > 0 && (
                 <span className="sq-badge sq-badge-error">{totalFailed}</span>
+              )}
+              {totalConflict > 0 && (
+                <span className="sq-badge sq-badge-conflict">{totalConflict}</span>
               )}
               <svg
                 className={`sq-expand-icon ${expanded ? "rotated" : ""}`}
@@ -147,6 +168,9 @@ export default function SyncStatusBar({
             onClearSynced={async () => {
               if (onClearSynced) await onClearSynced();
             }}
+            syncConflicts={syncConflicts}
+            onResolveConflict={onResolveConflict}
+            onOpenConflictPanel={onOpenConflictPanel}
           />
         </div>
       )}

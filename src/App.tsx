@@ -12,7 +12,9 @@ import {
   DataExportPanel,
   SyncStatusBar,
   AnomalyTraceList,
+  ConflictResolutionDialog,
 } from "./components";
+import type { SyncConflict } from "./domain";
 import AnomalyTrendAnalysis from "./AnomalyTrendAnalysis";
 import RoleDashboard from "./RoleDashboard";
 import { useAppStore } from "./stores";
@@ -69,6 +71,7 @@ function App() {
     filters,
     syncStatus,
     syncQueue,
+    syncConflicts,
     isLoading,
     isMigrating,
     migrationContext,
@@ -102,6 +105,7 @@ function App() {
     retryAllFailed,
     removeQueueItem,
     clearSyncedQueueItems,
+    resolveConflict,
     getTracesForRoom,
     getRecordsForRoom,
     getTicketsForTrace,
@@ -127,6 +131,7 @@ function App() {
     anomalyType: TicketAnomalyType;
   } | null>(null);
   const traceSectionRef = useRef<HTMLDivElement>(null);
+  const [selectedConflict, setSelectedConflict] = useState<SyncConflict | null>(null);
 
   const handleAddTicket = (
     ticketData: Omit<
@@ -286,10 +291,20 @@ function App() {
     if (result.syncedTraces > 0) parts.push(`追踪 ${result.syncedTraces}`);
 
     let msg: string;
+    const conflictCount =
+      (result as any).conflictedRecords +
+      (result as any).conflictedTickets +
+      (result as any).conflictedPlans +
+      (result as any).conflictedTraces || 0;
     if (result.errors.length > 0) {
-      const failedCount = result.detailedResults.filter((r) => !r.success).length;
+      const failedCount = result.detailedResults.filter((r) => r.status === "failed").length;
+      const conflictItems = result.detailedResults.filter((r) => r.status === "conflict").length;
       const successPart = parts.length > 0 ? `成功：${parts.join("、")}；` : "";
-      msg = `${successPart}${failedCount > 0 ? `${failedCount} 项失败：` : ""}${result.errors.slice(0, 2).join("；")}${result.errors.length > 2 ? "..." : ""}`;
+      const conflictPart = conflictItems > 0 ? `${conflictItems} 项冲突需要处理；` : "";
+      msg = `${successPart}${conflictPart}${failedCount > 0 ? `${failedCount} 项失败：` : ""}${result.errors.slice(0, 2).join("；")}${result.errors.length > 2 ? "..." : ""}`;
+    } else if (conflictCount > 0) {
+      const successPart = parts.length > 0 ? `成功：${parts.join("、")}；` : "";
+      msg = `${successPart}检测到 ${conflictCount} 项数据冲突，请在同步队列中查看并处理`;
     } else if (parts.length > 0) {
       msg = `同步完成：${parts.join("、")}`;
     } else {
@@ -359,12 +374,18 @@ function App() {
       <SyncStatusBar
         syncStatus={syncStatus}
         syncQueue={syncQueue}
+        syncConflicts={syncConflicts}
         onSyncNow={handleSyncNow}
         onProcessQueue={processQueue}
         onRetryFailed={retryAllFailed}
         onRetryItem={retryQueueItem}
         onRemoveItem={removeQueueItem}
         onClearSynced={clearSyncedQueueItems}
+        onResolveConflict={resolveConflict}
+        onOpenConflictPanel={() => {
+          const firstUnresolved = syncConflicts.find((c) => !c.resolvedAt);
+          if (firstUnresolved) setSelectedConflict(firstUnresolved);
+        }}
       />
       {syncMessage && <div className="sync-message">{syncMessage}</div>}
 
@@ -622,6 +643,13 @@ function App() {
           </div>
         </div>
       )}
+
+      <ConflictResolutionDialog
+        open={selectedConflict !== null}
+        conflict={selectedConflict}
+        onResolve={resolveConflict}
+        onClose={() => setSelectedConflict(null)}
+      />
     </main>
   );
 }

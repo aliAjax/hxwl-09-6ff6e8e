@@ -91,6 +91,8 @@ export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
     pressure: { min: 12, max: 20 },
     temperature: { min: 20, max: 24 },
     humidity: { min: 40, max: 50 },
+    version: 1,
+    updatedAt: "2026-06-01 00:00",
   },
   {
     area: "ISO 6",
@@ -99,6 +101,8 @@ export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
     pressure: { min: 10, max: 18 },
     temperature: { min: 20, max: 25 },
     humidity: { min: 35, max: 55 },
+    version: 1,
+    updatedAt: "2026-06-01 00:00",
   },
   {
     area: "ISO 7",
@@ -107,6 +111,8 @@ export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
     pressure: { min: 8, max: 15 },
     temperature: { min: 18, max: 26 },
     humidity: { min: 30, max: 60 },
+    version: 1,
+    updatedAt: "2026-06-01 00:00",
   },
   {
     area: "黄光区",
@@ -115,15 +121,17 @@ export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
     pressure: { min: 10, max: 18 },
     temperature: { min: 21, max: 25 },
     humidity: { min: 40, max: 55 },
+    version: 1,
+    updatedAt: "2026-06-01 00:00",
   },
 ];
 
 export const DEFAULT_PLANS: InspectionPlan[] = [
-  { id: 1, date: "2026-06-19", area: "ISO 5", role: "巡检员", inspector: "张伟", status: "进行中", linkedRecordIds: [], synced: true },
-  { id: 2, date: "2026-06-19", area: "ISO 6", role: "厂务工程师", inspector: "李娜", status: "未开始", linkedRecordIds: [], synced: true },
-  { id: 3, date: "2026-06-19", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成", linkedRecordIds: [1], synced: true },
-  { id: 4, date: "2026-06-19", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始", linkedRecordIds: [], synced: true },
-  { id: 5, date: "2026-06-19", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成", linkedRecordIds: [2], synced: true },
+  { id: 1, date: "2026-06-19", area: "ISO 5", role: "巡检员", inspector: "张伟", status: "进行中", linkedRecordIds: [], synced: true, version: 1, updatedAt: "2026-06-19 08:00" },
+  { id: 2, date: "2026-06-19", area: "ISO 6", role: "厂务工程师", inspector: "李娜", status: "未开始", linkedRecordIds: [], synced: true, version: 1, updatedAt: "2026-06-19 08:00" },
+  { id: 3, date: "2026-06-19", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成", linkedRecordIds: [1], synced: true, version: 1, updatedAt: "2026-06-19 08:00" },
+  { id: 4, date: "2026-06-19", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始", linkedRecordIds: [], synced: true, version: 1, updatedAt: "2026-06-19 08:00" },
+  { id: 5, date: "2026-06-19", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成", linkedRecordIds: [2], synced: true, version: 1, updatedAt: "2026-06-19 08:00" },
 ];
 
 export const DEFAULT_TICKETS: AnomalyTicket[] = [
@@ -139,6 +147,8 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
     sourceRecordId: 1,
     processNotes: [],
     synced: true,
+    version: 1,
+    updatedAt: "2026-06-18 09:30",
   },
   {
     id: 2,
@@ -159,6 +169,8 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
       },
     ],
     synced: true,
+    version: 2,
+    updatedAt: "2026-06-18 11:00",
   },
   {
     id: 3,
@@ -179,6 +191,8 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
       },
     ],
     synced: true,
+    version: 2,
+    updatedAt: "2026-06-18 09:00",
   },
 ];
 
@@ -234,8 +248,8 @@ export const TRACE_STATUS_TAG_CLASS: Record<TraceStatus, string> = {
 };
 
 export const DB_NAME = "hxwl09_cleanroom_db";
-export const DB_VERSION = 5;
-export const APP_VERSION = "1.1.0";
+export const DB_VERSION = 6;
+export const APP_VERSION = "1.2.0";
 
 export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> = {
   thresholds: "thresholds",
@@ -245,6 +259,7 @@ export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> =
   filters: "filters",
   anomalyTraces: "anomalyTraces",
   syncQueue: "syncQueue",
+  syncConflicts: "syncConflicts",
   migrationLogs: "migrationLogs",
   migrationFailedRecords: "migrationFailedRecords",
 };
@@ -297,6 +312,8 @@ export const DEFAULT_TRACES: AnomalyTrace[] = [
     },
     canClose: false,
     synced: true,
+    version: 3,
+    updatedAt: "2026-06-19 08:15",
   },
   {
     id: 2,
@@ -343,5 +360,7 @@ export const DEFAULT_TRACES: AnomalyTrace[] = [
     },
     canClose: false,
     synced: true,
+    version: 4,
+    updatedAt: "2026-06-19 07:30",
   },
 ];

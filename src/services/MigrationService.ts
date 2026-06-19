@@ -766,6 +766,7 @@ export class MigrationService {
       anomalyTraces,
       filters,
       syncQueue,
+      syncConflicts,
     ] = await Promise.all([
       localDBRepository.getThresholds(),
       localDBRepository.getInspectionRecords(),
@@ -774,6 +775,7 @@ export class MigrationService {
       localDBRepository.getAnomalyTraces(),
       localDBRepository.getFilters(),
       localDBRepository.getSyncQueue(),
+      localDBRepository.getSyncConflicts(),
     ]);
 
     const backup: BackupData = {
@@ -789,6 +791,7 @@ export class MigrationService {
         filters,
         anomalyTraces,
         syncQueue,
+        syncConflicts,
       },
     };
 

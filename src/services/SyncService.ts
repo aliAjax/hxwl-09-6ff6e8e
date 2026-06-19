@@ -1,10 +1,13 @@
 import type {
   AnomalyTicket,
   AnomalyTrace,
+  AreaThreshold,
   InspectionPlan,
   InspectionRecord,
   SyncAction,
+  SyncConflict,
   SyncEntityType,
+  SyncItemResult,
   SyncItemStatus,
   SyncQueueDetailedStatus,
   SyncQueueItem,
@@ -13,8 +16,17 @@ import type {
 import type { AppRepository, RemoteSyncRepository, SyncResult } from "../repositories";
 import { formatNow } from "../domain/rules";
 
-type SyncableEntity = InspectionRecord | AnomalyTicket | InspectionPlan | AnomalyTrace;
-type SyncedMarkEntity = InspectionRecord | AnomalyTicket | InspectionPlan | AnomalyTrace;
+type SyncableEntity =
+  | InspectionRecord
+  | AnomalyTicket
+  | InspectionPlan
+  | AnomalyTrace
+  | AreaThreshold;
+type SyncedMarkEntity =
+  | InspectionRecord
+  | AnomalyTicket
+  | InspectionPlan
+  | AnomalyTrace;
 
 interface EntitySaveHandlerMap {
   inspectionRecord: (updated: InspectionRecord[]) => Promise<void>;
@@ -25,8 +37,10 @@ interface EntitySaveHandlerMap {
 
 export class SyncService {
   private nextIdCache: number | null = null;
+  private nextConflictIdCache: number | null = null;
   private isProcessing = false;
   private queueChangeListeners: Set<() => void> = new Set();
+  private conflictChangeListeners: Set<() => void> = new Set();
 
   constructor(
     private repo: AppRepository,
@@ -38,8 +52,17 @@ export class SyncService {
     return () => this.queueChangeListeners.delete(callback);
   }
 
+  onConflictChange(callback: () => void): () => void {
+    this.conflictChangeListeners.add(callback);
+    return () => this.conflictChangeListeners.delete(callback);
+  }
+
   private notifyQueueChange() {
     this.queueChangeListeners.forEach((l) => l());
+  }
+
+  private notifyConflictChange() {
+    this.conflictChangeListeners.forEach((l) => l());
   }
 
   isOnline(): boolean {
@@ -50,6 +73,12 @@ export class SyncService {
     return this.remote.onOnlineChange(callback);
   }
 
+  setSimulateConflicts(enabled: boolean) {
+    if (this.remote.setSimulateConflicts) {
+      this.remote.setSimulateConflicts(enabled);
+    }
+  }
+
   private async getNextId(): Promise<number> {
     if (this.nextIdCache === null) {
       this.nextIdCache = await this.repo.getNextSyncQueueId();
@@ -57,9 +86,26 @@ export class SyncService {
     return this.nextIdCache++;
   }
 
+  private async getNextConflictId(): Promise<number> {
+    if (this.nextConflictIdCache === null) {
+      this.nextConflictIdCache = await this.repo.getNextSyncConflictId();
+    }
+    return this.nextConflictIdCache++;
+  }
+
+  bumpVersion<T extends { version?: number; updatedAt?: string }>(
+    entity: T
+  ): T {
+    return {
+      ...entity,
+      version: (entity.version ?? 0) + 1,
+      updatedAt: formatNow(),
+    };
+  }
+
   private buildFingerprint(
     entityType: SyncEntityType,
-    entityId: number,
+    entityId: number | string,
     action: SyncAction,
     snapshot: SyncableEntity
   ): string {
@@ -71,14 +117,16 @@ export class SyncService {
         String(snap.roomId ?? ""),
         String(snap.createdAt ?? ""),
         String(snap.particle05um ?? ""),
-        String(snap.status ?? "")
+        String(snap.status ?? ""),
+        String(snap.version ?? "")
       );
     } else if (entityType === "anomalyTicket") {
       keyParts.push(
         String(snap.roomId ?? ""),
         String(snap.createdAt ?? ""),
         String(snap.anomalyType ?? ""),
-        String(snap.status ?? "")
+        String(snap.status ?? ""),
+        String(snap.version ?? "")
       );
     } else if (entityType === "inspectionPlan") {
       keyParts.push(
@@ -86,6 +134,7 @@ export class SyncService {
         String(snap.area ?? ""),
         String(snap.inspector ?? ""),
         String(snap.status ?? ""),
+        String(snap.version ?? ""),
         Array.isArray(snap.linkedRecordIds)
           ? snap.linkedRecordIds.sort((a: number, b: number) => a - b).join(",")
           : ""
@@ -95,7 +144,13 @@ export class SyncService {
         String(snap.roomId ?? ""),
         String(snap.anomalyType ?? ""),
         String(snap.status ?? ""),
-        String(snap.lastOccurredAt ?? "")
+        String(snap.lastOccurredAt ?? ""),
+        String(snap.version ?? "")
+      );
+    } else if (entityType === "threshold") {
+      keyParts.push(
+        String(snap.area ?? ""),
+        String(snap.version ?? "")
       );
     }
 
@@ -107,10 +162,20 @@ export class SyncService {
     entity: SyncableEntity,
     action: SyncAction = "update"
   ): Promise<SyncQueueItem | null> {
-    const entityId = (entity as any).id as number;
-    if (!entityId) return null;
+    const entityId =
+      entityType === "threshold"
+        ? ((entity as AreaThreshold).area as unknown as number)
+        : ((entity as any).id as number);
+    if (!entityId && entityId !== 0) return null;
 
-    const fingerprint = this.buildFingerprint(entityType, entityId, action, entity);
+    const versioned = this.bumpVersion(entity);
+
+    const fingerprint = this.buildFingerprint(
+      entityType,
+      entityId,
+      action,
+      versioned
+    );
     const existingQueue = await this.repo.getSyncQueue();
 
     const duplicate = existingQueue.find(
@@ -118,6 +183,7 @@ export class SyncService {
         item.entityType === entityType &&
         item.entityId === entityId &&
         item.status !== "synced" &&
+        item.status !== "conflict" &&
         item.syncFingerprint === fingerprint
     );
     if (duplicate) return duplicate;
@@ -126,7 +192,9 @@ export class SyncService {
       (item) =>
         item.entityType === entityType &&
         item.entityId === entityId &&
-        (item.status === "pending" || item.status === "failed")
+        (item.status === "pending" ||
+          item.status === "failed" ||
+          item.status === "conflict")
     );
 
     let targetItem: SyncQueueItem;
@@ -136,7 +204,7 @@ export class SyncService {
         action,
         status: "pending" as SyncItemStatus,
         errorMessage: undefined,
-        dataSnapshot: entity as any,
+        dataSnapshot: versioned as any,
         syncFingerprint: fingerprint,
         lastAttemptAt: undefined,
       };
@@ -151,7 +219,7 @@ export class SyncService {
         status: "pending",
         retryCount: 0,
         createdAt: formatNow(),
-        dataSnapshot: entity as any,
+        dataSnapshot: versioned as any,
         syncFingerprint: fingerprint,
       };
       await this.repo.saveSyncQueueItem(targetItem);
@@ -166,22 +234,33 @@ export class SyncService {
       this.repo.getInspectionRecords(),
       this.repo.getAnomalyTickets(),
       this.repo.getInspectionPlans(),
-      this.repo.getAnomalyTraces ? this.repo.getAnomalyTraces() : Promise.resolve([]),
+      this.repo.getAnomalyTraces
+        ? this.repo.getAnomalyTraces()
+        : Promise.resolve([]),
     ]);
 
     const existingQueue = await this.repo.getSyncQueue();
     const existingFingerprints = new Set(
       existingQueue
-        .filter((i) => i.status !== "synced")
+        .filter((i) => i.status !== "synced" && i.status !== "conflict")
         .map((i) => `${i.entityType}:${i.entityId}`)
     );
 
     let created = 0;
     const tasks: Array<{ type: SyncEntityType; list: SyncableEntity[] }> = [
-      { type: "inspectionRecord", list: records.filter((r) => !r.synced) },
-      { type: "anomalyTicket", list: tickets.filter((t) => !t.synced) },
+      {
+        type: "inspectionRecord",
+        list: records.filter((r) => !r.synced),
+      },
+      {
+        type: "anomalyTicket",
+        list: tickets.filter((t) => !t.synced),
+      },
       { type: "inspectionPlan", list: plans.filter((p) => !p.synced) },
-      { type: "anomalyTrace", list: traces.filter((t: any) => !t.synced) },
+      {
+        type: "anomalyTrace",
+        list: traces.filter((t: any) => !t.synced),
+      },
     ];
 
     for (const { type, list } of tasks) {
@@ -238,10 +317,57 @@ export class SyncService {
     }
   }
 
-  private async pushSingle(item: SyncQueueItem): Promise<{
-    success: boolean;
-    errorMessage?: string;
-  }> {
+  private async replaceEntityLocal(
+    entityType: SyncEntityType,
+    entity: any
+  ): Promise<void> {
+    switch (entityType) {
+      case "inspectionRecord": {
+        const all = await this.repo.getInspectionRecords();
+        const updated = all.map((r) =>
+          r.id === entity.id ? { ...entity, synced: false } : r
+        );
+        await this.repo.saveAllInspectionRecords(updated);
+        break;
+      }
+      case "anomalyTicket": {
+        const all = await this.repo.getAnomalyTickets();
+        const updated = all.map((t) =>
+          t.id === entity.id ? { ...entity, synced: false } : t
+        );
+        await this.repo.saveAllAnomalyTickets(updated);
+        break;
+      }
+      case "inspectionPlan": {
+        const all = await this.repo.getInspectionPlans();
+        const updated = all.map((p) =>
+          p.id === entity.id ? { ...entity, synced: false } : p
+        );
+        await this.repo.saveAllInspectionPlans(updated);
+        break;
+      }
+      case "anomalyTrace": {
+        if (this.repo.getAnomalyTraces && this.repo.saveAllAnomalyTraces) {
+          const all = await this.repo.getAnomalyTraces();
+          const updated = all.map((t) =>
+            (t as any).id === entity.id ? { ...entity, synced: false } : t
+          );
+          await this.repo.saveAllAnomalyTraces(updated);
+        }
+        break;
+      }
+      case "threshold": {
+        const all = await this.repo.getThresholds();
+        const updated = all.map((t) =>
+          t.area === entity.area ? { ...entity } : t
+        );
+        await this.repo.saveThresholds(updated);
+        break;
+      }
+    }
+  }
+
+  private async pushSingle(item: SyncQueueItem): Promise<SyncItemResult> {
     const snap = item.dataSnapshot;
     switch (item.entityType) {
       case "inspectionRecord":
@@ -252,9 +378,39 @@ export class SyncService {
         return this.remote.pushPlan(snap as InspectionPlan);
       case "anomalyTrace":
         return this.remote.pushTrace(snap as AnomalyTrace);
+      case "threshold":
+        return this.remote.pushThreshold(snap as unknown as AreaThreshold);
       default:
-        return { success: false, errorMessage: "未知的实体类型" };
+        return {
+          success: false,
+          status: "failed",
+          errorMessage: "未知的实体类型",
+        };
     }
+  }
+
+  private async createConflictRecord(
+    item: SyncQueueItem,
+    result: SyncItemResult
+  ): Promise<SyncConflict> {
+    const id = await this.getNextConflictId();
+    const localSnap = item.dataSnapshot as any;
+    const conflict: SyncConflict = {
+      id,
+      entityType: item.entityType,
+      entityId: item.entityId,
+      detectedAt: formatNow(),
+      localSnapshot: item.dataSnapshot,
+      remoteSnapshot: result.remoteSnapshot ?? {},
+      localVersion: localSnap?.version,
+      remoteVersion: result.remoteVersion,
+      localUpdatedAt: localSnap?.updatedAt,
+      remoteUpdatedAt: result.remoteUpdatedAt,
+      errorMessage: result.errorMessage,
+    };
+    await this.repo.saveSyncConflict(conflict);
+    this.notifyConflictChange();
+    return conflict;
   }
 
   async processQueue(
@@ -267,6 +423,10 @@ export class SyncService {
         syncedTickets: 0,
         syncedPlans: 0,
         syncedTraces: 0,
+        conflictedRecords: 0,
+        conflictedTickets: 0,
+        conflictedPlans: 0,
+        conflictedTraces: 0,
         errors: ["同步正在进行中，请稍后再试"],
         detailedResults: [],
       };
@@ -278,6 +438,10 @@ export class SyncService {
         syncedTickets: 0,
         syncedPlans: 0,
         syncedTraces: 0,
+        conflictedRecords: 0,
+        conflictedTickets: 0,
+        conflictedPlans: 0,
+        conflictedTraces: 0,
         errors: ["当前离线，无法同步"],
         detailedResults: [],
       };
@@ -294,7 +458,11 @@ export class SyncService {
         queue = queue.filter((i) => {
           if (scope === "pending") return i.status === "pending";
           if (scope === "failed") return i.status === "failed";
-          return i.status === "pending" || i.status === "failed";
+          return (
+            i.status === "pending" ||
+            i.status === "failed" ||
+            i.status === "conflict"
+          );
         });
       }
 
@@ -304,6 +472,10 @@ export class SyncService {
       let syncedTickets = 0;
       let syncedPlans = 0;
       let syncedTraces = 0;
+      let conflictedRecords = 0;
+      let conflictedTickets = 0;
+      let conflictedPlans = 0;
+      let conflictedTraces = 0;
 
       for (const item of queue) {
         const updatedItem: SyncQueueItem = {
@@ -316,7 +488,7 @@ export class SyncService {
 
         const result = await this.pushSingle(updatedItem);
 
-        if (result.success) {
+        if (result.status === "success") {
           const finalItem: SyncQueueItem = {
             ...updatedItem,
             status: "synced",
@@ -336,6 +508,36 @@ export class SyncService {
             entityType: item.entityType,
             entityId: item.entityId,
             success: true,
+            status: "success",
+          });
+        } else if (result.status === "conflict") {
+          const conflict = await this.createConflictRecord(item, result);
+
+          const finalItem: SyncQueueItem = {
+            ...updatedItem,
+            status: "conflict",
+            errorMessage: result.errorMessage,
+            retryCount: updatedItem.retryCount + 1,
+          };
+          await this.repo.updateSyncQueueItem(finalItem);
+
+          if (result.errorMessage) {
+            errors.push(result.errorMessage);
+          }
+          if (item.entityType === "inspectionRecord") conflictedRecords++;
+          else if (item.entityType === "anomalyTicket")
+            conflictedTickets++;
+          else if (item.entityType === "inspectionPlan") conflictedPlans++;
+          else if (item.entityType === "anomalyTrace")
+            conflictedTraces++;
+
+          detailedResults.push({
+            entityType: item.entityType,
+            entityId: item.entityId,
+            success: false,
+            status: "conflict",
+            errorMessage: result.errorMessage,
+            conflictId: conflict.id,
           });
         } else {
           const finalItem: SyncQueueItem = {
@@ -353,6 +555,7 @@ export class SyncService {
             entityType: item.entityType,
             entityId: item.entityId,
             success: false,
+            status: "failed",
             errorMessage: result.errorMessage,
           });
         }
@@ -364,12 +567,94 @@ export class SyncService {
         syncedTickets,
         syncedPlans,
         syncedTraces,
+        conflictedRecords,
+        conflictedTickets,
+        conflictedPlans,
+        conflictedTraces,
         errors,
         detailedResults,
       };
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  async resolveConflict(
+    conflictId: number,
+    resolution: "keepLocal" | "useRemote"
+  ): Promise<{ success: boolean; errorMessage?: string }> {
+    const conflicts = await this.repo.getSyncConflicts();
+    const conflict = conflicts.find((c) => c.id === conflictId);
+    if (!conflict) {
+      return { success: false, errorMessage: "冲突记录不存在" };
+    }
+
+    try {
+      if (resolution === "keepLocal") {
+        const queueItem: SyncQueueItem | null = (
+          await this.repo.getSyncQueue()
+        ).find(
+          (q) =>
+            q.entityType === conflict.entityType &&
+            q.entityId === conflict.entityId
+        ) ?? null;
+
+        if (queueItem) {
+          const bumped = this.bumpVersion(queueItem.dataSnapshot as any);
+          const reQueued: SyncQueueItem = {
+            ...queueItem,
+            status: "pending",
+            dataSnapshot: bumped,
+            errorMessage: undefined,
+            syncFingerprint: this.buildFingerprint(
+              conflict.entityType,
+              conflict.entityId,
+              queueItem.action,
+              bumped
+            ),
+          };
+          await this.repo.updateSyncQueueItem(reQueued);
+        }
+      } else if (resolution === "useRemote") {
+        await this.replaceEntityLocal(
+          conflict.entityType,
+          conflict.remoteSnapshot
+        );
+
+        const queue = await this.repo.getSyncQueue();
+        const queueItem = queue.find(
+          (q) =>
+            q.entityType === conflict.entityType &&
+            q.entityId === conflict.entityId
+        );
+        if (queueItem) {
+          await this.repo.removeSyncQueueItem(queueItem.id);
+        }
+      }
+
+      const resolved: SyncConflict = {
+        ...conflict,
+        resolvedAt: formatNow(),
+        resolution,
+      };
+      await this.repo.updateSyncConflict(resolved);
+
+      this.notifyQueueChange();
+      this.notifyConflictChange();
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, errorMessage: e?.message ?? "解决冲突失败" };
+    }
+  }
+
+  async getConflicts(): Promise<SyncConflict[]> {
+    return this.repo.getSyncConflicts();
+  }
+
+  async getUnresolvedConflicts(): Promise<SyncConflict[]> {
+    const all = await this.repo.getSyncConflicts();
+    return all.filter((c) => !c.resolvedAt);
   }
 
   async retryItem(itemId: number): Promise<SyncResult> {
@@ -390,6 +675,16 @@ export class SyncService {
     this.notifyQueueChange();
   }
 
+  async clearResolvedConflicts(): Promise<void> {
+    await this.repo.clearResolvedConflicts();
+    this.notifyConflictChange();
+  }
+
+  async removeConflict(conflictId: number): Promise<void> {
+    await this.repo.removeSyncConflict(conflictId);
+    this.notifyConflictChange();
+  }
+
   async getQueue(): Promise<SyncQueueItem[]> {
     return this.repo.getSyncQueue();
   }
@@ -400,28 +695,33 @@ export class SyncService {
     let syncing = 0;
     let failed = 0;
     let synced = 0;
+    let conflict = 0;
     for (const item of queue) {
       if (item.status === "pending") pending++;
       else if (item.status === "syncing") syncing++;
       else if (item.status === "failed") failed++;
       else if (item.status === "synced") synced++;
+      else if (item.status === "conflict") conflict++;
     }
-    return { pending, syncing, failed, synced, queue };
+    return { pending, syncing, failed, synced, conflict, queue } as any;
   }
 
   async getSyncStatus(): Promise<SyncStatus> {
-    const [records, tickets, plans, detailedStatus] = await Promise.all([
-      this.repo.getInspectionRecords(),
-      this.repo.getAnomalyTickets(),
-      this.repo.getInspectionPlans(),
-      this.getDetailedQueueStatus(),
-    ]);
+    const [records, tickets, plans, detailedStatus, conflicts] =
+      await Promise.all([
+        this.repo.getInspectionRecords(),
+        this.repo.getAnomalyTickets(),
+        this.repo.getInspectionPlans(),
+        this.getDetailedQueueStatus(),
+        this.getUnresolvedConflicts(),
+      ]);
 
     const queueByEntityFailed: Record<SyncEntityType, number> = {
       inspectionRecord: 0,
       anomalyTicket: 0,
       inspectionPlan: 0,
       anomalyTrace: 0,
+      threshold: 0,
     };
     for (const item of detailedStatus.queue) {
       if (item.status === "failed") {
@@ -436,10 +736,13 @@ export class SyncService {
       failedRecords: queueByEntityFailed.inspectionRecord,
       failedTickets: queueByEntityFailed.anomalyTicket,
       failedPlans: queueByEntityFailed.inspectionPlan,
+      conflictCount: conflicts.length,
       isOnline: this.remote.isOnline(),
+      lastSyncAt: undefined,
       queueTotal: detailedStatus.queue.length,
       queuePending: detailedStatus.pending,
       queueFailed: detailedStatus.failed,
+      queueConflict: (detailedStatus as any).conflict ?? 0,
     };
   }
 
