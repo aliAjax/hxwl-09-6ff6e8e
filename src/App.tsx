@@ -19,6 +19,7 @@ import { useAppStore } from "./stores";
 import type {
   AnomalyType,
   CleanArea,
+  InspectionRecord,
   PlanStatus,
   RoleType,
   TicketAnomalyType,
@@ -72,6 +73,8 @@ function App() {
     anomalyTraces,
     setThresholds,
     addInspectionRecord,
+    linkRecordToPlan,
+    getTodayPlans,
     createTicketFromRecord,
     hasTicketForRecord,
     getExistingRoomIds,
@@ -148,6 +151,13 @@ function App() {
     const total = sampleRecords.length - results.filter((r) => r.none).length;
     return [String(particle), String(pressure), String(temphum), String(total)];
   }, [thresholds]);
+
+  const handleSubmitInspectionRecord = (record: InspectionRecord, planId?: number) => {
+    addInspectionRecord(record);
+    if (planId) {
+      linkRecordToPlan(planId, record.id);
+    }
+  };
 
   const handlePlanStatusFilter = (filter: "全部" | PlanStatus) => {
     setFilters({ ...filters, planStatusFilter: filter });
@@ -369,8 +379,9 @@ function App() {
 
         <InspectionRecordForm
           thresholds={thresholds}
-          onSubmit={addInspectionRecord}
+          onSubmit={handleSubmitInspectionRecord}
           existingRoomIds={getExistingRoomIds()}
+          todayPlans={getTodayPlans()}
         />
       </section>
 
@@ -379,6 +390,7 @@ function App() {
         activeFilter={filters.planStatusFilter}
         onFilterChange={handlePlanStatusFilter}
         onAddPlan={(plan) => createInspectionPlan(plan)}
+        onStatusChange={(planId, status) => store.updateInspectionPlanStatus(planId, status)}
       />
 
       <AnomalyTicketManagement

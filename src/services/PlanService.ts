@@ -21,6 +21,11 @@ export class PlanService {
     return all.filter((p) => p.status === status);
   }
 
+  async getByDate(date: string): Promise<InspectionPlan[]> {
+    const all = await this.repo.getInspectionPlans();
+    return all.filter((p) => p.date === date);
+  }
+
   async create(input: {
     date: string;
     area: CleanArea;
@@ -34,6 +39,7 @@ export class PlanService {
       role: input.role,
       inspector: input.inspector.trim(),
       status: "未开始",
+      linkedRecordIds: [],
       synced: false,
     };
     await this.repo.saveInspectionPlan(plan);
@@ -42,6 +48,10 @@ export class PlanService {
 
   async updateStatus(planId: number, status: PlanStatus): Promise<void> {
     await this.repo.updatePlanStatus(planId, status);
+  }
+
+  async addLinkedRecord(planId: number, recordId: number): Promise<void> {
+    await this.repo.addLinkedRecordToPlan(planId, recordId);
   }
 
   async replaceAll(plans: InspectionPlan[]): Promise<void> {
@@ -54,6 +64,10 @@ export class PlanService {
       进行中: plans.filter((p) => p.status === "进行中").length,
       已完成: plans.filter((p) => p.status === "已完成").length,
     };
+  }
+
+  countLinkedRecords(plan: InspectionPlan): number {
+    return (plan.linkedRecordIds ?? []).length;
   }
 
   getAreas(): CleanArea[] {

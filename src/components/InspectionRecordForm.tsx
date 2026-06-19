@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type {
   AreaThreshold,
   CleanArea,
@@ -7,6 +7,7 @@ import type {
   RecordStatus,
   AnomalyType,
   InspectionRecordInput,
+  InspectionPlan,
 } from "../domain";
 import {
   CLEAN_AREAS,
@@ -31,16 +32,18 @@ type SampleRecord = {
 
 interface InspectionRecordFormProps {
   thresholds: AreaThreshold[];
-  onSubmit: (record: InspectionRecord) => void;
+  onSubmit: (record: InspectionRecord, planId?: number) => void;
   existingRoomIds: string[];
+  todayPlans: InspectionPlan[];
 }
 
 const project = {
   domain: "洁净室巡检",
 };
 
-export default function InspectionRecordForm({ thresholds, onSubmit, existingRoomIds }: InspectionRecordFormProps) {
+export default function InspectionRecordForm({ thresholds, onSubmit, existingRoomIds, todayPlans }: InspectionRecordFormProps) {
   const [form, setForm] = useState({
+    planId: "" as string,
     roomId: "",
     area: CLEAN_AREAS[0] as CleanArea,
     particle05um: "",
@@ -53,6 +56,20 @@ export default function InspectionRecordForm({ thresholds, onSubmit, existingRoo
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSuccess, setShowSuccess] = useState(false);
+
+  const selectedPlan = useMemo(() => {
+    if (!form.planId) return null;
+    return todayPlans.find((p) => p.id === parseInt(form.planId)) || null;
+  }, [form.planId, todayPlans]);
+
+  useEffect(() => {
+    if (selectedPlan) {
+      setForm((prev) => ({
+        ...prev,
+        area: selectedPlan.area,
+      }));
+    }
+  }, [selectedPlan]);
 
   const previewRecord = useMemo(() => {
     const p05 = parseFloat(form.particle05um);
@@ -135,10 +152,12 @@ export default function InspectionRecordForm({ thresholds, onSubmit, existingRoo
     };
 
     const newRecord = buildInspectionRecord(input, thresholds);
+    const planId = form.planId ? parseInt(form.planId) : undefined;
 
-    onSubmit(newRecord);
+    onSubmit(newRecord, planId);
 
     setForm({
+      planId: "",
       roomId: "",
       area: CLEAN_AREAS[0],
       particle05um: "",
@@ -176,6 +195,31 @@ export default function InspectionRecordForm({ thresholds, onSubmit, existingRoo
       </div>
 
       <div className="record-form-grid">
+        <label>
+          <span>关联巡检计划（可选）</span>
+          <select
+            value={form.planId}
+            onChange={(e) => updateField("planId", e.target.value)}
+          >
+            <option value="">-- 不关联计划 --</option>
+            {todayPlans.length === 0 && (
+              <option value="" disabled>（今日暂无计划）</option>
+            )}
+            {todayPlans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.area} · {p.inspector} · {p.status}
+              </option>
+            ))}
+          </select>
+          {selectedPlan && (
+            <small className="plan-info-hint">
+              已带出：洁净等级 <strong>{selectedPlan.area}</strong>
+              {selectedPlan.inspector && ` · 巡检员：${selectedPlan.inspector}`}
+              {selectedPlan.role && ` · 角色：${selectedPlan.role}`}
+            </small>
+          )}
+        </label>
+
         <label className={errors.roomId ? "has-error" : ""}>
           <span>房间编号</span>
           <input
@@ -191,11 +235,13 @@ export default function InspectionRecordForm({ thresholds, onSubmit, existingRoo
           <select
             value={form.area}
             onChange={(e) => updateField("area", e.target.value)}
+            disabled={!!selectedPlan}
           >
             {CLEAN_AREAS.map((a) => (
               <option key={a} value={a}>{a}</option>
             ))}
           </select>
+          {selectedPlan && <small className="plan-info-hint">已从计划自动带出</small>}
         </label>
 
         <label className={errors.particle05um ? "has-error" : ""}>

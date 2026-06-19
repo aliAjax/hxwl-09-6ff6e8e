@@ -129,35 +129,45 @@ function InspectionSchedule({
       )}
 
       <div className="record-list">
-        {filtered.map((plan) => (
-          <article key={plan.id} className="record-card plan-card">
-            <div className="record-index">{plan.area}</div>
-            <div className="plan-card-body">
-              <div className="plan-card-top">
-                <h3>{plan.inspector}</h3>
-                <span className={`plan-tag ${PLAN_STATUS_TAG_CLASS[plan.status]}`}>
-                  {plan.status}
-                </span>
+        {filtered.map((plan) => {
+          const linkedCount = (plan.linkedRecordIds ?? []).length;
+          return (
+            <article key={plan.id} className="record-card plan-card">
+              <div className="record-index">{plan.area}</div>
+              <div className="plan-card-body">
+                <div className="plan-card-top">
+                  <h3>{plan.inspector}</h3>
+                  <span className={`plan-tag ${PLAN_STATUS_TAG_CLASS[plan.status]}`}>
+                    {plan.status}
+                  </span>
+                </div>
+                <p>{plan.date} · {plan.role}</p>
+                <div className="plan-linked-count">
+                  <span className="plan-linked-icon">📋</span>
+                  <span>已关联记录：</span>
+                  <strong className={`plan-linked-num ${linkedCount > 0 ? "has-records" : ""}`}>
+                    {linkedCount} 条
+                  </strong>
+                </div>
               </div>
-              <p>{plan.date} · {plan.role}</p>
-            </div>
-            {onStatusChange && (
-              <div className="plan-card-actions">
-                {plan.status !== "已完成" && (
-                  <button
-                    className="ticket-action-btn primary"
-                    onClick={() => {
-                      const next = plan.status === "未开始" ? "进行中" : "已完成";
-                      onStatusChange(plan.id, next);
-                    }}
-                  >
-                    {plan.status === "未开始" ? "开始巡检" : "完成"}
-                  </button>
-                )}
-              </div>
-            )}
-          </article>
-        ))}
+              {onStatusChange && (
+                <div className="plan-card-actions">
+                  {plan.status !== "已完成" && (
+                    <button
+                      className="ticket-action-btn primary"
+                      onClick={() => {
+                        const next = plan.status === "未开始" ? "进行中" : "已完成";
+                        onStatusChange(plan.id, next);
+                      }}
+                    >
+                      {plan.status === "未开始" ? "开始巡检" : "完成"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
         {filtered.length === 0 && <p className="plan-empty">暂无匹配的巡检计划</p>}
       </div>
     </section>

@@ -238,6 +238,7 @@ function backfillInspectionPlan(
     role: data.role ?? "巡检员",
     inspector: data.inspector ?? "",
     status: data.status ?? "未开始",
+    linkedRecordIds: data.linkedRecordIds ?? [],
     synced: data.synced ?? false,
   };
 }
@@ -520,6 +521,33 @@ export class LocalDBRepository implements AppRepository {
           await promisifyRequest(
             store.put({ ...existing, status, synced: false })
           );
+        }
+      }
+    );
+  }
+
+  async addLinkedRecordToPlan(
+    planId: number,
+    recordId: number
+  ): Promise<void> {
+    return withStore(
+      DB_STORE_NAMES.inspectionPlans,
+      "readwrite",
+      async (store) => {
+        const existing = await promisifyRequest(
+          store.get(planId) as IDBRequest<InspectionPlan>
+        );
+        if (existing) {
+          const linkedRecordIds = existing.linkedRecordIds ?? [];
+          if (!linkedRecordIds.includes(recordId)) {
+            await promisifyRequest(
+              store.put({
+                ...existing,
+                linkedRecordIds: [...linkedRecordIds, recordId],
+                synced: false,
+              })
+            );
+          }
         }
       }
     );

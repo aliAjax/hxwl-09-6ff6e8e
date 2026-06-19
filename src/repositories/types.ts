@@ -31,6 +31,7 @@ export interface AppRepository {
   saveInspectionPlan(plan: InspectionPlan): Promise<void>;
   saveAllInspectionPlans(plans: InspectionPlan[]): Promise<void>;
   updatePlanStatus(planId: number, status: InspectionPlan["status"]): Promise<void>;
+  addLinkedRecordToPlan(planId: number, recordId: number): Promise<void>;
 
   getFilters(): Promise<FilterConditions>;
   saveFilters(filters: FilterConditions): Promise<void>;

@@ -394,6 +394,30 @@ input {
   border: 1px solid color-mix(in srgb, #16a34a 30%, #dbe3ef);
 }
 
+.plan-linked-count {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.plan-linked-icon {
+  font-size: 14px;
+}
+
+.plan-linked-num {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.plan-linked-num.has-records {
+  color: var(--primary);
+}
+
 .plan-empty {
   text-align: center;
   color: #94a3b8;
@@ -1009,6 +1033,21 @@ input {
   color: #172033;
   font: inherit;
   resize: vertical;
+}
+
+.plan-info-hint {
+  font-size: 12px;
+  color: #0891b2;
+  background: color-mix(in srgb, #0891b2 8%, #ffffff);
+  border: 1px solid color-mix(in srgb, #0891b2 25%, #dbe3ef);
+  border-radius: 6px;
+  padding: 6px 10px;
+  line-height: 1.6;
+}
+
+.plan-info-hint strong {
+  color: #0e7490;
+  font-weight: 600;
 }
 
 .record-form-remark {

@@ -119,11 +119,11 @@ export const DEFAULT_THRESHOLDS: AreaThreshold[] = [
 ];
 
 export const DEFAULT_PLANS: InspectionPlan[] = [
-  { id: 1, date: "2026-06-18", area: "ISO 5", role: "巡检员", inspector: "张伟", status: "进行中", synced: true },
-  { id: 2, date: "2026-06-18", area: "ISO 6", role: "厂务工程师", inspector: "李娜", status: "未开始", synced: true },
-  { id: 3, date: "2026-06-18", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成", synced: true },
-  { id: 4, date: "2026-06-18", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始", synced: true },
-  { id: 5, date: "2026-06-18", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成", synced: true },
+  { id: 1, date: "2026-06-19", area: "ISO 5", role: "巡检员", inspector: "张伟", status: "进行中", linkedRecordIds: [], synced: true },
+  { id: 2, date: "2026-06-19", area: "ISO 6", role: "厂务工程师", inspector: "李娜", status: "未开始", linkedRecordIds: [], synced: true },
+  { id: 3, date: "2026-06-19", area: "黄光区", role: "班组长", inspector: "王强", status: "已完成", linkedRecordIds: [1], synced: true },
+  { id: 4, date: "2026-06-19", area: "ISO 7", role: "巡检员", inspector: "赵敏", status: "未开始", linkedRecordIds: [], synced: true },
+  { id: 5, date: "2026-06-19", area: "ISO 5", role: "厂务工程师", inspector: "陈磊", status: "已完成", linkedRecordIds: [2], synced: true },
 ];
 
 export const DEFAULT_TICKETS: AnomalyTicket[] = [

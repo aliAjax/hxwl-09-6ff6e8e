@@ -103,6 +103,7 @@ export interface InspectionPlan {
   role: string;
   inspector: string;
   status: PlanStatus;
+  linkedRecordIds: number[];
   synced?: boolean;
 }
 

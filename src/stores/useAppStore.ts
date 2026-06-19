@@ -105,6 +105,8 @@ export interface UseAppStoreReturn {
     inspector: string;
   }) => Promise<InspectionPlan | null>;
   updateInspectionPlanStatus: (planId: number, status: PlanStatus) => void;
+  linkRecordToPlan: (planId: number, recordId: number) => void;
+  getTodayPlans: () => InspectionPlan[];
   checkAnomalies: (readings: {
     area: CleanArea;
     particle05um: number;
@@ -515,6 +517,32 @@ export function useAppStore(): UseAppStoreReturn {
     [setInspectionPlans]
   );
 
+  const linkRecordToPlan = useCallback(
+    (planId: number, recordId: number) => {
+      setInspectionPlans((prev) =>
+        prev.map((p) => {
+          if (p.id !== planId) return p;
+          const linkedRecordIds = p.linkedRecordIds ?? [];
+          if (linkedRecordIds.includes(recordId)) return p;
+          return {
+            ...p,
+            linkedRecordIds: [...linkedRecordIds, recordId],
+            synced: false,
+          };
+        })
+      );
+      localDBRepository.addLinkedRecordToPlan(planId, recordId).catch((err) =>
+        console.error("Failed to link record to plan:", err)
+      );
+    },
+    [setInspectionPlans]
+  );
+
+  const getTodayPlans = useCallback(() => {
+    const today = appService.plans.todayStr();
+    return inspectionPlans.filter((p) => p.date === today);
+  }, [inspectionPlans]);
+
   const checkAnomalies = useCallback(
     (readings: {
       area: CleanArea;
@@ -765,6 +793,8 @@ export function useAppStore(): UseAppStoreReturn {
     addInspectionPlan,
     createInspectionPlan,
     updateInspectionPlanStatus,
+    linkRecordToPlan,
+    getTodayPlans,
     checkAnomalies,
     getRecordStatus,
     hasTicketForRecord,
