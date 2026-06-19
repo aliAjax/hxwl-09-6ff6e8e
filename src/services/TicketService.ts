@@ -35,6 +35,7 @@ export class TicketService {
       id: Date.now(),
       status: "待处理",
       createdAt: formatNow(),
+      processNotes: [],
       synced: false,
     };
     await this.repo.saveAnomalyTicket(ticket);

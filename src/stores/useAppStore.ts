@@ -23,6 +23,7 @@ import type {
 import { appService } from "../services";
 import { localDBRepository } from "../repositories";
 import type { SyncResult } from "../repositories";
+import { formatNow } from "../domain/rules";
 
 type Updater<T> = T | ((prev: T) => T);
 
@@ -55,7 +56,7 @@ export interface UseAppStoreReturn {
       record: InspectionRecord | null; errors: Record<string, string> }>;
   addAnomalyTicket: (ticket: AnomalyTicket) => void;
   createAnomalyTicket: (
-    input: Omit<AnomalyTicket, "id" | "createdAt" | "status">
+    input: Omit<AnomalyTicket, "id" | "createdAt" | "status" | "processNotes">
   ) => Promise<AnomalyTicket>;
   createTicketFromRecord: (
     readings: {
@@ -70,7 +71,7 @@ export interface UseAppStoreReturn {
     },
     anomalyType: TicketAnomalyType
   ) => Promise<AnomalyTicket>;
-  updateAnomalyTicketStatus: (id: number, status: TicketStatus) => void;
+  updateAnomalyTicketStatus: (id: number, status: TicketStatus, processNote?: string) => void;
   createAnomalyTrace: (
     input: AnomalyTraceInput
   ) => Promise<AnomalyTrace>;
@@ -304,7 +305,7 @@ export function useAppStore(): UseAppStoreReturn {
 
   const createAnomalyTicket = useCallback(
     async (
-      input: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => {
+      input: Omit<AnomalyTicket, "id" | "createdAt" | "status" | "processNotes">) => {
       const ticket = await appService.tickets.create(input);
       addAnomalyTicket(ticket);
       return ticket;
@@ -338,9 +339,21 @@ export function useAppStore(): UseAppStoreReturn {
   );
 
   const updateAnomalyTicketStatus = useCallback(
-    (id: number, status: TicketStatus) => {
+    (id: number, status: TicketStatus, processNote?: string) => {
       setAnomalyTickets((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, status, synced: false } : t))
+        prev.map((t) => {
+          if (t.id !== id) return t;
+          const newNotes = [...(t.processNotes || [])];
+          if (processNote) {
+            newNotes.push({
+              note: processNote,
+              timestamp: formatNow(),
+              fromStatus: t.status,
+              toStatus: status,
+            });
+          }
+          return { ...t, status, processNotes: newNotes, synced: false };
+        })
       );
       localDBRepository.updateTicketStatus(id, status).catch((err) =>
         console.error("Failed to update ticket status:", err)

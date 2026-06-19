@@ -224,6 +224,7 @@ function backfillAnomalyTicket(
       data.createdAt ??
       new Date().toISOString().slice(0, 16).replace("T", " "),
     sourceRecordId: data.sourceRecordId,
+    processNotes: data.processNotes ?? [],
     synced: data.synced ?? false,
   };
 }

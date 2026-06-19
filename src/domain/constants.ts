@@ -137,6 +137,7 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
     remark: "0.5μm和5.0μm粒子均超限",
     createdAt: "2026-06-18 09:30",
     sourceRecordId: 1,
+    processNotes: [],
     synced: true,
   },
   {
@@ -149,6 +150,14 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
     remark: "压差低于下限，正在排查阀门",
     createdAt: "2026-06-18 10:15",
     sourceRecordId: 4,
+    processNotes: [
+      {
+        note: "已安排工程师排查压差调节阀，预计今日完成",
+        timestamp: "2026-06-18 11:00",
+        fromStatus: "待处理",
+        toStatus: "处理中",
+      },
+    ],
     synced: true,
   },
   {
@@ -161,6 +170,14 @@ export const DEFAULT_TICKETS: AnomalyTicket[] = [
     remark: "空调系统已修复，温湿度恢复正常",
     createdAt: "2026-06-17 14:20",
     sourceRecordId: 4,
+    processNotes: [
+      {
+        note: "空调系统检修完成，温湿度恢复至正常范围",
+        timestamp: "2026-06-18 09:00",
+        fromStatus: "处理中",
+        toStatus: "已关闭",
+      },
+    ],
     synced: true,
   },
 ];

@@ -12,14 +12,21 @@ interface AnomalyTicketManagementProps {
   tickets: AnomalyTicket[];
   activeFilter: "全部" | TicketStatus;
   onFilterChange: (filter: "全部" | TicketStatus) => void;
-  onAddTicket: (ticket: Omit<AnomalyTicket, "id" | "createdAt" | "status">) => void;
-  onStatusChange: (ticketId: number, status: TicketStatus) => void;
+  onAddTicket: (ticket: Omit<AnomalyTicket, "id" | "createdAt" | "status" | "processNotes">) => void;
+  onStatusChange: (ticketId: number, status: TicketStatus, processNote?: string) => void;
 }
 
 function AnomalyTicketManagement({
   tickets, activeFilter, onFilterChange, onAddTicket, onStatusChange,
 }: AnomalyTicketManagementProps) {
   const [showForm, setShowForm] = useState(false);
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("全部");
+  const [pendingAction, setPendingAction] = useState<{
+    ticketId: number;
+    targetStatus: TicketStatus;
+    direction: "forward" | "backward";
+  } | null>(null);
+  const [processNoteInput, setProcessNoteInput] = useState("");
   const [form, setForm] = useState({
     roomId: "",
     area: CLEAN_AREAS[0] as CleanArea,
@@ -28,13 +35,22 @@ function AnomalyTicketManagement({
     remark: "",
   });
 
-  const filtered = activeFilter === "全部" ? tickets : tickets.filter((t) => t.status === activeFilter);
+  const filtered = tickets.filter((t) => {
+    if (activeFilter !== "全部" && t.status !== activeFilter) return false;
+    if (assigneeFilter !== "全部" && t.assignee !== assigneeFilter) return false;
+    return true;
+  });
 
   const counts = {
     "待处理": tickets.filter((t) => t.status === "待处理").length,
     "处理中": tickets.filter((t) => t.status === "处理中").length,
     "已关闭": tickets.filter((t) => t.status === "已关闭").length,
   };
+
+  const assigneeCounts = TICKET_ASSIGNEES.map((name) => ({
+    name,
+    count: tickets.filter((t) => t.assignee === name).length,
+  }));
 
   const handleAdd = () => {
     if (!form.roomId.trim()) return;
@@ -47,6 +63,40 @@ function AnomalyTicketManagement({
     });
     setForm((prev) => ({ ...prev, roomId: "", remark: "" }));
     setShowForm(false);
+  };
+
+  const handleStatusClick = (
+    ticketId: number,
+    targetStatus: TicketStatus,
+    direction: "forward" | "backward"
+  ) => {
+    if (direction === "forward") {
+      setPendingAction({ ticketId, targetStatus, direction });
+      setProcessNoteInput("");
+    } else {
+      onStatusChange(ticketId, targetStatus);
+    }
+  };
+
+  const confirmStatusChange = () => {
+    if (!pendingAction) return;
+    onStatusChange(
+      pendingAction.ticketId,
+      pendingAction.targetStatus,
+      processNoteInput.trim() || undefined
+    );
+    setPendingAction(null);
+    setProcessNoteInput("");
+  };
+
+  const cancelStatusChange = () => {
+    setPendingAction(null);
+    setProcessNoteInput("");
+  };
+
+  const getLastProcessNote = (ticket: AnomalyTicket) => {
+    const notes = ticket.processNotes || [];
+    return notes.length > 0 ? notes[notes.length - 1] : null;
   };
 
   return (
@@ -70,16 +120,44 @@ function AnomalyTicketManagement({
         ))}
       </div>
 
-      <div className="chips muted" style={{ marginBottom: 18 }}>
-        {TICKET_STATUS_FILTERS.map((f) => (
-          <button
-            key={f}
-            className={activeFilter === f ? "chip-active" : ""}
-            onClick={() => onFilterChange(f)}
-          >
-            {f}
-          </button>
-        ))}
+      <div className="ticket-filter-bar">
+        <div className="ticket-filter-group">
+          <span className="ticket-filter-label">状态</span>
+          <div className="chips muted">
+            {TICKET_STATUS_FILTERS.map((f) => (
+              <button
+                key={f}
+                className={activeFilter === f ? "chip-active" : ""}
+                onClick={() => onFilterChange(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="ticket-filter-group">
+          <span className="ticket-filter-label">负责人</span>
+          <div className="chips muted">
+            <button
+              className={assigneeFilter === "全部" ? "chip-active" : ""}
+              onClick={() => setAssigneeFilter("全部")}
+            >
+              全部
+            </button>
+            {TICKET_ASSIGNEES.map((name) => (
+              <button
+                key={name}
+                className={assigneeFilter === name ? "chip-active" : ""}
+                onClick={() => setAssigneeFilter(name)}
+              >
+                {name}
+                <span className="chip-count">
+                  {assigneeCounts.find((a) => a.name === name)?.count ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {showForm && (
@@ -147,6 +225,7 @@ function AnomalyTicketManagement({
         {filtered.map((ticket) => {
           const nextStatus = nextTicketStatus(ticket.status);
           const prevStatus = prevTicketStatus(ticket.status);
+          const lastNote = getLastProcessNote(ticket);
           return (
             <article key={ticket.id} className="ticket-card">
               <div className="ticket-card-header">
@@ -180,12 +259,24 @@ function AnomalyTicketManagement({
                     <p>{ticket.remark}</p>
                   </div>
                 )}
+                {lastNote && (
+                  <div className="ticket-process-note">
+                    <div className="ticket-process-note-header">
+                      <span className="ticket-meta-label">最近处理说明</span>
+                      <span className="ticket-process-note-time">{lastNote.timestamp}</span>
+                    </div>
+                    <p>{lastNote.note}</p>
+                    <span className="ticket-process-note-transition">
+                      {lastNote.fromStatus} → {lastNote.toStatus}
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="ticket-actions">
                 {prevStatus && (
                   <button
                     className="ticket-action-btn secondary"
-                    onClick={() => onStatusChange(ticket.id, prevStatus)}
+                    onClick={() => handleStatusClick(ticket.id, prevStatus, "backward")}
                   >
                     回退到{prevStatus}
                   </button>
@@ -193,7 +284,7 @@ function AnomalyTicketManagement({
                 {nextStatus && (
                   <button
                     className="ticket-action-btn primary"
-                    onClick={() => onStatusChange(ticket.id, nextStatus)}
+                    onClick={() => handleStatusClick(ticket.id, nextStatus, "forward")}
                   >
                     标记为{nextStatus}
                   </button>
@@ -204,6 +295,33 @@ function AnomalyTicketManagement({
         })}
         {filtered.length === 0 && <p className="ticket-empty">暂无匹配的工单</p>}
       </div>
+
+      {pendingAction && (
+        <div className="ticket-note-overlay" onClick={cancelStatusChange}>
+          <div className="ticket-note-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>推进工单状态</h3>
+            <p className="ticket-note-desc">
+              将工单标记为「{pendingAction.targetStatus}」，可填写处理说明（选填）
+            </p>
+            <textarea
+              className="ticket-note-input"
+              placeholder="请输入处理说明，例如：已安排工程师排查..."
+              value={processNoteInput}
+              onChange={(e) => setProcessNoteInput(e.target.value)}
+              rows={3}
+              autoFocus
+            />
+            <div className="ticket-note-actions">
+              <button className="ticket-action-btn secondary" onClick={cancelStatusChange}>
+                取消
+              </button>
+              <button className="ticket-action-btn primary" onClick={confirmStatusChange}>
+                确认{processNoteInput.trim() ? "并添加说明" : "推进"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

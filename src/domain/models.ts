@@ -127,6 +127,13 @@ export interface InspectionRecord extends InspectionRecordInput {
   synced?: boolean;
 }
 
+export interface ProcessNote {
+  note: string;
+  timestamp: string;
+  fromStatus: TicketStatus;
+  toStatus: TicketStatus;
+}
+
 export interface AnomalyTicketInput {
   roomId: string;
   area: CleanArea;
@@ -140,6 +147,7 @@ export interface AnomalyTicket extends AnomalyTicketInput {
   id: number;
   status: TicketStatus;
   createdAt: string;
+  processNotes: ProcessNote[];
   synced?: boolean;
 }
 

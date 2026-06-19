@@ -118,7 +118,7 @@ function App() {
   const handleAddTicket = (
     ticketData: Omit<
       import("./domain").AnomalyTicket,
-      "id" | "createdAt" | "status"
+      "id" | "createdAt" | "status" | "processNotes"
     >
   ) => {
     createAnomalyTicket(ticketData);
