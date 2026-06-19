@@ -374,6 +374,12 @@ function App() {
         onQuickAction={handleQuickAction}
         activeRole={filters.activeRole}
         onRoleChange={handleRoleChange}
+        inspectionPlans={inspectionPlans}
+        inspectionRecords={inspectionRecords}
+        anomalyTickets={anomalyTickets}
+        anomalyTraces={anomalyTraces}
+        thresholds={thresholds}
+        todayPlans={getTodayPlans()}
       />
 
       <section className="metrics-grid">

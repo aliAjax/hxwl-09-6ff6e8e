@@ -1,21 +1,60 @@
-import { useState, useEffect, useCallback } from "react";
-import {
-  generateRoleDashboardData,
-  roleColors,
-  priorityColors,
-  taskStatusColors,
-  deviceStatusColors,
-  type RoleType,
-  type RoleDashboardData,
-  type PendingRoom,
-  type TodayTask,
-  type DeviceStatus,
-  type AnomalyHandle,
-  type SummaryMetric,
-  type OverdueItem,
-} from "./mockData";
+import { useState, useMemo } from "react";
+import type {
+  CleanArea,
+  RoleType,
+  InspectionPlan,
+  AnomalyTicket,
+  InspectionRecord,
+  AnomalyTrace,
+  AreaThreshold,
+  TicketStatus,
+  PlanStatus,
+  TicketAnomalyType,
+} from "./domain";
 
 const roles: RoleType[] = ["巡检员", "厂务工程师", "班组长"];
+
+export const roleColors: Record<RoleType, string> = {
+  "巡检员": "#0f766e",
+  "厂务工程师": "#2563eb",
+  "班组长": "#7c3aed",
+};
+
+const priorityColors: Record<string, string> = {
+  "高": "#e11d48",
+  "中": "#d97706",
+  "低": "#0f766e",
+};
+
+const ticketStatusColors: Record<TicketStatus, string> = {
+  "待处理": "#d97706",
+  "处理中": "#2563eb",
+  "已关闭": "#16a34a",
+};
+
+const planStatusColors: Record<PlanStatus, string> = {
+  "未开始": "#64748b",
+  "进行中": "#2563eb",
+  "已完成": "#16a34a",
+};
+
+const anomalyTypeColors: Record<TicketAnomalyType, string> = {
+  "粒子异常": "#7c3aed",
+  "压差异常": "#2563eb",
+  "温湿度偏移": "#e11d48",
+};
+
+interface RoleDashboardProps {
+  onQuickAction?: (action: string) => void;
+  activeRole: RoleType;
+  onRoleChange: (role: RoleType) => void;
+  inspectionPlans: InspectionPlan[];
+  inspectionRecords: InspectionRecord[];
+  anomalyTickets: AnomalyTicket[];
+  anomalyTraces: AnomalyTrace[];
+  thresholds: AreaThreshold[];
+  todayPlans: InspectionPlan[];
+}
 
 function RoleMetricCard({
   label,
@@ -68,12 +107,48 @@ function QuickActionButton({
   );
 }
 
+function getPriorityFromArea(area: CleanArea): "高" | "中" | "低" {
+  switch (area) {
+    case "ISO 5":
+      return "高";
+    case "ISO 6":
+      return "中";
+    case "ISO 7":
+      return "低";
+    case "黄光区":
+      return "中";
+    default:
+      return "中";
+  }
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "-";
+  const parts = dateStr.split(" ");
+  if (parts.length > 1) {
+    return parts[0];
+  }
+  return dateStr;
+}
+
+function getGreeting(): string {
+  const now = new Date();
+  const hour = now.getHours();
+  if (hour < 12) return "早上好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
 function InspectorView({
-  data,
+  plans,
+  records,
+  tickets,
   roleColor,
   onAction,
 }: {
-  data: RoleDashboardData;
+  plans: InspectionPlan[];
+  records: InspectionRecord[];
+  tickets: AnomalyTicket[];
   roleColor: string;
   onAction: (action: string) => void;
 }) {
@@ -86,8 +161,8 @@ function InspectorView({
     };
   };
 
-  const statusBadgeClass = (status: string) => {
-    const color = taskStatusColors[status as keyof typeof taskStatusColors];
+  const statusBadgeClass = (status: PlanStatus) => {
+    const color = planStatusColors[status];
     return {
       background: `${color}14`,
       color,
@@ -95,126 +170,154 @@ function InspectorView({
     };
   };
 
+  const pendingPlans = plans.filter((p) => p.status !== "已完成");
+  const recentAnomalyRecords = records
+    .filter((r) => r.status === "异常")
+    .slice(0, 5);
+
   return (
     <div className="role-content-grid">
       <section className="role-panel">
         <div className="role-section-heading">
           <div>
             <p className="role-section-eyebrow" style={{ color: roleColor }}>
-              优先处理
+              待巡检计划
             </p>
-            <h2>待录入房间</h2>
+            <h2>我的巡检任务</h2>
           </div>
           <button
             className="role-action-btn primary"
             style={{ background: roleColor, borderColor: roleColor }}
-            onClick={() => onAction("createRecord")}
+            onClick={() => onAction("viewSchedule")}
           >
-            快速录入
+            查看全部
           </button>
         </div>
         <div className="role-list">
-          {data.pendingRooms?.map((room: PendingRoom) => (
-            <article key={room.id} className="role-list-card">
-              <div
-                className="role-list-index"
-                style={{ background: roleColor }}
-              >
-                {room.roomId.slice(-2)}
-              </div>
-              <div className="role-list-body">
-                <div className="role-list-header">
-                  <h3>{room.roomId}</h3>
-                  <span
-                    className="role-badge"
-                    style={priorityBadgeClass(room.priority)}
+          {pendingPlans.length === 0 ? (
+            <div className="role-empty-state">
+              <p>暂无待巡检计划</p>
+            </div>
+          ) : (
+            pendingPlans.slice(0, 5).map((plan) => {
+              const priority = getPriorityFromArea(plan.area);
+              const completedCount = (plan.linkedRecordIds ?? []).length;
+              return (
+                <article key={plan.id} className="role-list-card">
+                  <div
+                    className="role-list-index"
+                    style={{ background: roleColor }}
                   >
-                    {room.priority}优先级
-                  </span>
-                </div>
-                <div className="role-list-meta">
-                  <span className="role-area-tag">{room.area}</span>
-                  <span>上次巡检: {room.lastInspection}</span>
-                </div>
-                <div className="role-list-footer">
-                  <span className="role-deadline">
-                    截止: {room.deadline}
-                  </span>
-                  <button
-                    className="role-list-action"
-                    style={{ color: roleColor, borderColor: `${roleColor}40` }}
-                    onClick={() => onAction("createRecord")}
-                  >
-                    立即录入
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
+                    {plan.area.slice(-2)}
+                  </div>
+                  <div className="role-list-body">
+                    <div className="role-list-header">
+                      <h3>{plan.area} 巡检</h3>
+                      <span
+                        className="role-badge"
+                        style={statusBadgeClass(plan.status)}
+                      >
+                        {plan.status}
+                      </span>
+                    </div>
+                    <div className="role-list-meta">
+                      <span className="role-area-tag">{plan.area}</span>
+                      <span>负责人: {plan.inspector}</span>
+                      <span
+                        className="role-badge"
+                        style={priorityBadgeClass(priority)}
+                      >
+                        {priority}优先级
+                      </span>
+                    </div>
+                    <div className="role-list-footer">
+                      <span className="role-deadline">
+                        计划日期: {plan.date}
+                      </span>
+                      <button
+                        className="role-list-action"
+                        style={{ color: roleColor, borderColor: `${roleColor}40` }}
+                        onClick={() => onAction("createRecord")}
+                      >
+                        立即巡检
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
 
       <section className="role-panel">
         <div className="role-section-heading">
           <div>
-            <p className="role-section-eyebrow" style={{ color: roleColor }}>
-              今日安排
+            <p className="role-section-eyebrow" style={{ color: "#e11d48" }}>
+              最近异常
             </p>
-            <h2>今日任务</h2>
+            <h2>异常记录</h2>
           </div>
-          <span className="role-count-badge">
-            {data.todayTasks?.filter((t) => t.status !== "已完成").length} 项待处理
+          <span className="role-count-badge danger">
+            {recentAnomalyRecords.length} 条异常
           </span>
         </div>
         <div className="role-list">
-          {data.todayTasks?.map((task: TodayTask) => (
-            <article key={task.id} className="role-list-card">
-              <div
-                className="role-list-index"
-                style={{
-                  background:
-                    task.status === "已完成"
-                      ? "#16a34a"
-                      : task.status === "已逾期"
-                      ? "#e11d48"
-                      : roleColor,
-                }}
-              >
-                {task.type.slice(0, 2)}
-              </div>
-              <div className="role-list-body">
-                <div className="role-list-header">
-                  <h3>
-                    {task.title} · {task.roomId}
-                  </h3>
-                  <span
-                    className="role-badge"
-                    style={statusBadgeClass(task.status)}
+          {recentAnomalyRecords.length === 0 ? (
+            <div className="role-empty-state">
+              <p>暂无异常记录</p>
+            </div>
+          ) : (
+            recentAnomalyRecords.map((record) => {
+              const relatedTickets = tickets.filter(
+                (t) => t.sourceRecordId === record.id
+              );
+              return (
+                <article key={record.id} className="role-list-card">
+                  <div
+                    className="role-list-index"
+                    style={{ background: "#e11d48" }}
                   >
-                    {task.status}
-                  </span>
-                </div>
-                <div className="role-list-meta">
-                  <span className="role-area-tag">{task.area}</span>
-                  <span className="role-type-tag">{task.type}</span>
-                </div>
-                <div className="role-list-footer">
-                  <span className="role-deadline">
-                    截止: {task.deadline}
-                  </span>
-                  {task.status !== "已完成" && (
-                    <button
-                      className="role-list-action"
-                      style={{ color: roleColor, borderColor: `${roleColor}40` }}
-                      onClick={() => onAction("viewSchedule")}
-                    >
-                      查看详情
-                    </button>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
+                    异常
+                  </div>
+                  <div className="role-list-body">
+                    <div className="role-list-header">
+                      <h3>{record.roomId}</h3>
+                      <span className="role-badge" style={{
+                        background: "#e11d4814",
+                        color: "#e11d48",
+                        borderColor: "#e11d4840",
+                      }}>
+                        异常
+                      </span>
+                    </div>
+                    <div className="role-list-meta">
+                      <span className="role-area-tag">{record.area}</span>
+                      <span>设备: {record.deviceStatus}</span>
+                    </div>
+                    <div className="role-list-footer">
+                      <span className="role-deadline">
+                        {formatDate(record.createdAt)}
+                      </span>
+                      {relatedTickets.length > 0 ? (
+                        <span className="role-anomaly-count">
+                          {relatedTickets.length} 个工单
+                        </span>
+                      ) : (
+                        <button
+                          className="role-list-action"
+                          style={{ color: roleColor, borderColor: `${roleColor}40` }}
+                          onClick={() => onAction("createDeviceTicket")}
+                        >
+                          创建工单
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
     </div>
@@ -222,11 +325,13 @@ function InspectorView({
 }
 
 function EngineerView({
-  data,
+  tickets,
+  records,
   roleColor,
   onAction,
 }: {
-  data: RoleDashboardData;
+  tickets: AnomalyTicket[];
+  records: InspectionRecord[];
   roleColor: string;
   onAction: (action: string) => void;
 }) {
@@ -239,8 +344,8 @@ function EngineerView({
     };
   };
 
-  const statusBadgeClass = (status: string) => {
-    const color = taskStatusColors[status as keyof typeof taskStatusColors];
+  const statusBadgeClass = (status: TicketStatus) => {
+    const color = ticketStatusColors[status];
     return {
       background: `${color}14`,
       color,
@@ -248,8 +353,8 @@ function EngineerView({
     };
   };
 
-  const deviceStatusBadge = (status: string) => {
-    const color = deviceStatusColors[status as keyof typeof deviceStatusColors];
+  const typeBadgeClass = (type: TicketAnomalyType) => {
+    const color = anomalyTypeColors[type];
     return {
       background: `${color}14`,
       color,
@@ -257,9 +362,46 @@ function EngineerView({
     };
   };
 
-  const deviceDotColor = (status: string) => {
-    return deviceStatusColors[status as keyof typeof deviceStatusColors];
-  };
+  const pendingTickets = tickets.filter(
+    (t) => t.status !== "已关闭"
+  );
+
+  const deviceStats = useMemo(() => {
+    const stats: Record<string, { running: number; fault: number; standby: number }> = {};
+    records.forEach((r) => {
+      if (!stats[r.area]) {
+        stats[r.area] = { running: 0, fault: 0, standby: 0 };
+      }
+      if (r.deviceStatus === "运行中") {
+        stats[r.area].running++;
+      } else if (r.deviceStatus === "故障") {
+        stats[r.area].fault++;
+      } else {
+        stats[r.area].standby++;
+      }
+    });
+    return stats;
+  }, [records]);
+
+  const deviceList = useMemo(() => {
+    const rooms = new Map<string, { roomId: string; area: CleanArea; status: string; lastCheck: string; anomalyCount: number }>();
+    records.forEach((r) => {
+      const existing = rooms.get(r.roomId);
+      if (!existing || new Date(r.createdAt) > new Date(existing.lastCheck)) {
+        const anomalyCount = tickets.filter(
+          (t) => t.roomId === r.roomId && t.status !== "已关闭"
+        ).length;
+        rooms.set(r.roomId, {
+          roomId: r.roomId,
+          area: r.area,
+          status: r.deviceStatus,
+          lastCheck: r.createdAt,
+          anomalyCount,
+        });
+      }
+    });
+    return Array.from(rooms.values()).slice(0, 6);
+  }, [records, tickets]);
 
   return (
     <div className="role-content-grid">
@@ -267,9 +409,9 @@ function EngineerView({
         <div className="role-section-heading">
           <div>
             <p className="role-section-eyebrow" style={{ color: roleColor }}>
-              设备监控
+              设备状态
             </p>
-            <h2>设备状态</h2>
+            <h2>设备监控</h2>
           </div>
           <button
             className="role-action-btn primary"
@@ -280,43 +422,74 @@ function EngineerView({
           </button>
         </div>
         <div className="role-list">
-          {data.devices?.map((device: DeviceStatus) => (
-            <article key={device.id} className="role-list-card">
-              <div className="role-device-icon">
-                <span
-                  className="role-device-dot"
-                  style={{ background: deviceDotColor(device.status) }}
-                />
-              </div>
-              <div className="role-list-body">
-                <div className="role-list-header">
-                  <h3>{device.name}</h3>
+          {deviceList.length === 0 ? (
+            <div className="role-empty-state">
+              <p>暂无设备数据</p>
+            </div>
+          ) : (
+            deviceList.map((device, index) => (
+              <article key={device.roomId} className="role-list-card">
+                <div className="role-device-icon">
                   <span
-                    className="role-badge"
-                    style={deviceStatusBadge(device.status)}
-                  >
-                    {device.status}
-                  </span>
+                    className="role-device-dot"
+                    style={{
+                      background:
+                        device.status === "运行中"
+                          ? "#16a34a"
+                          : device.status === "故障"
+                          ? "#e11d48"
+                          : "#64748b",
+                    }}
+                  />
                 </div>
-                <div className="role-list-meta">
-                  <span className="role-area-tag">{device.area}</span>
-                  <span>{device.roomId}</span>
-                </div>
-                <div className="role-list-footer">
-                  <span className="role-deadline">
-                    上次检查: {device.lastCheck}
-                  </span>
-                  {device.anomalyCount > 0 ? (
-                    <span className="role-anomaly-count">
-                      {device.anomalyCount} 项异常
+                <div className="role-list-body">
+                  <div className="role-list-header">
+                    <h3>{device.roomId}</h3>
+                    <span
+                      className="role-badge"
+                      style={{
+                        background:
+                          device.status === "运行中"
+                            ? "#16a34a14"
+                            : device.status === "故障"
+                            ? "#e11d4814"
+                            : "#64748b14",
+                        color:
+                          device.status === "运行中"
+                            ? "#16a34a"
+                            : device.status === "故障"
+                            ? "#e11d48"
+                            : "#64748b",
+                        borderColor:
+                          device.status === "运行中"
+                            ? "#16a34a40"
+                            : device.status === "故障"
+                            ? "#e11d4840"
+                            : "#64748b40",
+                      }}
+                    >
+                      {device.status}
                     </span>
-                  ) : (
-                    <span className="role-status-ok">运行正常</span>
-                  )}
+                  </div>
+                  <div className="role-list-meta">
+                    <span className="role-area-tag">{device.area}</span>
+                  </div>
+                  <div className="role-list-footer">
+                    <span className="role-deadline">
+                      上次检查: {formatDate(device.lastCheck)}
+                    </span>
+                    {device.anomalyCount > 0 ? (
+                      <span className="role-anomaly-count">
+                        {device.anomalyCount} 项异常
+                      </span>
+                    ) : (
+                      <span className="role-status-ok">运行正常</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            ))
+          )}
         </div>
       </section>
 
@@ -324,9 +497,9 @@ function EngineerView({
         <div className="role-section-heading">
           <div>
             <p className="role-section-eyebrow" style={{ color: roleColor }}>
-              异常处理
+              环境异常
             </p>
-            <h2>待处理工单</h2>
+            <h2>待处理异常</h2>
           </div>
           <button
             className="role-action-btn primary"
@@ -337,60 +510,73 @@ function EngineerView({
           </button>
         </div>
         <div className="role-list">
-          {data.anomalyHandles?.map((handle: AnomalyHandle) => (
-            <article key={handle.id} className="role-list-card">
-              <div
-                className="role-list-index"
-                style={{
-                  background:
-                    handle.status === "已逾期"
-                      ? "#e11d48"
-                      : handle.status === "待处理"
-                      ? "#d97706"
-                      : roleColor,
-                }}
-              >
-                #{handle.ticketId}
-              </div>
-              <div className="role-list-body">
-                <div className="role-list-header">
-                  <h3>
-                    {handle.anomalyType} · {handle.roomId}
-                  </h3>
-                  <span
-                    className="role-badge"
-                    style={statusBadgeClass(handle.status)}
+          {pendingTickets.length === 0 ? (
+            <div className="role-empty-state">
+              <p>暂无待处理异常</p>
+            </div>
+          ) : (
+            pendingTickets.slice(0, 5).map((ticket) => {
+              const priority = getPriorityFromArea(ticket.area);
+              return (
+                <article key={ticket.id} className="role-list-card">
+                  <div
+                    className="role-list-index"
+                    style={{
+                      background:
+                        ticket.status === "待处理"
+                          ? "#d97706"
+                          : roleColor,
+                    }}
                   >
-                    {handle.status}
-                  </span>
-                </div>
-                <div className="role-list-meta">
-                  <span className="role-area-tag">{handle.area}</span>
-                  <span>负责人: {handle.assignee}</span>
-                  <span
-                    className="role-badge"
-                    style={priorityBadgeClass(handle.priority)}
-                  >
-                    {handle.priority}
-                  </span>
-                </div>
-                <div className="role-list-footer">
-                  <span className="role-deadline">
-                    创建时间: {handle.createdAt}
-                  </span>
-                  {handle.status !== "已完成" && (
-                    <button
-                      className="role-list-action"
-                      style={{ color: roleColor, borderColor: `${roleColor}40` }}
-                      onClick={() => onAction("createDeviceTicket")}
-                    >
-                      处理
-                    </button>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
+                    #{ticket.id}
+                  </div>
+                  <div className="role-list-body">
+                    <div className="role-list-header">
+                      <h3>
+                        {ticket.anomalyType} · {ticket.roomId}
+                      </h3>
+                      <span
+                        className="role-badge"
+                        style={statusBadgeClass(ticket.status)}
+                      >
+                        {ticket.status}
+                      </span>
+                    </div>
+                    <div className="role-list-meta">
+                      <span className="role-area-tag">{ticket.area}</span>
+                      <span>负责人: {ticket.assignee}</span>
+                      <span
+                        className="role-badge"
+                        style={typeBadgeClass(ticket.anomalyType)}
+                      >
+                        {ticket.anomalyType}
+                      </span>
+                      <span
+                        className="role-badge"
+                        style={priorityBadgeClass(priority)}
+                      >
+                        {priority}
+                      </span>
+                    </div>
+                    <div className="role-list-footer">
+                      <span className="role-deadline">
+                        创建时间: {formatDate(ticket.createdAt)}
+                      </span>
+                      {ticket.status !== "已关闭" && (
+                        <button
+                          className="role-list-action"
+                          style={{ color: roleColor, borderColor: `${roleColor}40` }}
+                          onClick={() => onAction("createDeviceTicket")}
+                        >
+                          处理
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
     </div>
@@ -398,11 +584,19 @@ function EngineerView({
 }
 
 function SupervisorView({
-  data,
+  plans,
+  tickets,
+  records,
+  traces,
+  thresholds,
   roleColor,
   onAction,
 }: {
-  data: RoleDashboardData;
+  plans: InspectionPlan[];
+  tickets: AnomalyTicket[];
+  records: InspectionRecord[];
+  traces: AnomalyTrace[];
+  thresholds: AreaThreshold[];
   roleColor: string;
   onAction: (action: string) => void;
 }) {
@@ -414,6 +608,94 @@ function SupervisorView({
       borderColor: `${color}40`,
     };
   };
+
+  const areaRiskSummary = useMemo(() => {
+    const areas: CleanArea[] = ["ISO 5", "ISO 6", "ISO 7", "黄光区"];
+    return areas.map((area) => {
+      const areaTickets = tickets.filter(
+        (t) => t.area === area && t.status !== "已关闭"
+      );
+      const areaRecords = records.filter((r) => r.area === area);
+      const areaTraces = traces.filter(
+        (t) => t.area === area && t.status !== "已恢复"
+      );
+      const anomalyRecords = areaRecords.filter((r) => r.status === "异常");
+
+      let riskLevel: "高" | "中" | "低";
+      if (areaTickets.length >= 3 || areaTraces.length >= 2) {
+        riskLevel = "高";
+      } else if (areaTickets.length >= 1 || areaTraces.length >= 1) {
+        riskLevel = "中";
+      } else {
+        riskLevel = "低";
+      }
+
+      return {
+        area,
+        ticketCount: areaTickets.length,
+        traceCount: areaTraces.length,
+        anomalyRecordCount: anomalyRecords.length,
+        riskLevel,
+      };
+    });
+  }, [tickets, records, traces]);
+
+  const openTickets = tickets.filter((t) => t.status !== "已关闭");
+
+  const summaryMetrics = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayRecords = records.filter((r) => r.createdAt.startsWith(todayStr));
+    const todayPlansCount = plans.filter((p) => p.date === todayStr).length;
+    const completedPlansCount = plans.filter(
+      (p) => p.date === todayStr && p.status === "已完成"
+    ).length;
+    const completionRate =
+      todayPlansCount > 0
+        ? Math.round((completedPlansCount / todayPlansCount) * 100)
+        : 0;
+
+    const totalTickets = tickets.length;
+    const closedTickets = tickets.filter((t) => t.status === "已关闭").length;
+    const ticketCloseRate =
+      totalTickets > 0 ? Math.round((closedTickets / totalTickets) * 100) : 0;
+
+    const activeTraces = traces.filter((t) => t.status !== "已恢复").length;
+
+    return [
+      {
+        label: "今日巡检完成率",
+        value: completionRate,
+        unit: "%",
+        trend: completionRate >= 80 ? "up" : completionRate >= 50 ? "stable" : "down",
+        changePercent: 0,
+        color: "#0f766e",
+      },
+      {
+        label: "异常工单处理率",
+        value: ticketCloseRate,
+        unit: "%",
+        trend: ticketCloseRate >= 70 ? "up" : ticketCloseRate >= 40 ? "stable" : "down",
+        changePercent: 0,
+        color: "#2563eb",
+      },
+      {
+        label: "活跃异常追踪",
+        value: activeTraces,
+        unit: "个",
+        trend: activeTraces <= 2 ? "down" : activeTraces <= 5 ? "stable" : "up",
+        changePercent: 0,
+        color: "#7c3aed",
+      },
+      {
+        label: "未关闭工单",
+        value: openTickets.length,
+        unit: "个",
+        trend: openTickets.length <= 2 ? "down" : openTickets.length <= 5 ? "stable" : "up",
+        changePercent: 0,
+        color: "#e11d48",
+      },
+    ];
+  }, [plans, tickets, traces, records, openTickets.length]);
 
   const typeLabel: Record<string, string> = {
     plan: "巡检计划",
@@ -433,9 +715,9 @@ function SupervisorView({
         <div className="role-section-heading">
           <div>
             <p className="role-section-eyebrow" style={{ color: roleColor }}>
-              团队概览
+              区域风险
             </p>
-            <h2>汇总指标</h2>
+            <h2>风险汇总</h2>
           </div>
           <button
             className="role-action-btn primary"
@@ -446,34 +728,68 @@ function SupervisorView({
           </button>
         </div>
         <div className="role-summary-grid">
-          {data.summaryMetrics?.map((metric: SummaryMetric, index: number) => (
-            <article key={index} className="role-summary-card">
+          {areaRiskSummary.map((item, index) => (
+            <article key={item.area} className="role-summary-card">
               <div className="role-summary-header">
-                <span className="role-summary-label">{metric.label}</span>
+                <span className="role-summary-label">{item.area}</span>
                 <span
-                  className={`role-trend ${metric.trend}`}
-                  style={{ color: metric.color }}
+                  className={`role-trend ${
+                    item.riskLevel === "高"
+                      ? "up"
+                      : item.riskLevel === "中"
+                      ? "stable"
+                      : "down"
+                  }`}
+                  style={{
+                    color:
+                      item.riskLevel === "高"
+                        ? "#e11d48"
+                        : item.riskLevel === "中"
+                        ? "#d97706"
+                        : "#16a34a",
+                  }}
                 >
-                  {metric.trend === "up"
-                    ? "↑"
-                    : metric.trend === "down"
-                    ? "↓"
-                    : "→"}
-                  {Math.abs(metric.changePercent)}%
+                  {item.riskLevel === "高"
+                    ? "↑ 高风险"
+                    : item.riskLevel === "中"
+                    ? "→ 中风险"
+                    : "↓ 低风险"}
                 </span>
               </div>
-              <div className="role-summary-value" style={{ color: metric.color }}>
-                {metric.value}
-                <span className="role-summary-unit">{metric.unit}</span>
+              <div
+                className="role-summary-value"
+                style={{
+                  color:
+                    item.riskLevel === "高"
+                      ? "#e11d48"
+                      : item.riskLevel === "中"
+                      ? "#d97706"
+                      : "#16a34a",
+                }}
+              >
+                {item.ticketCount + item.traceCount}
+                <span className="role-summary-unit">项异常</span>
               </div>
               <div className="role-progress-bar">
                 <div
                   className="role-progress-fill"
                   style={{
-                    width: `${Math.min(metric.value, 100)}%`,
-                    background: metric.color,
+                    width: `${Math.min(
+                      ((item.ticketCount + item.traceCount) / 10) * 100,
+                      100
+                    )}%`,
+                    background:
+                      item.riskLevel === "高"
+                        ? "#e11d48"
+                        : item.riskLevel === "中"
+                        ? "#d97706"
+                        : "#16a34a",
                   }}
                 />
+              </div>
+              <div className="role-summary-details">
+                <span>工单: {item.ticketCount}</span>
+                <span>追踪: {item.traceCount}</span>
               </div>
             </article>
           ))}
@@ -484,105 +800,104 @@ function SupervisorView({
         <div className="role-section-heading">
           <div>
             <p className="role-section-eyebrow" style={{ color: "#e11d48" }}>
-              需要关注
+              待处理
             </p>
-            <h2>逾期项</h2>
+            <h2>未关闭工单</h2>
           </div>
           <span className="role-count-badge danger">
-            {data.overdueItems?.length} 项已逾期
+            {openTickets.length} 项未关闭
           </span>
         </div>
         <div className="role-list">
-          {data.overdueItems?.map((item: OverdueItem) => (
-            <article key={item.id} className="role-list-card">
-              <div
-                className="role-list-index"
-                style={{ background: typeColor[item.type] }}
-              >
-                {typeLabel[item.type].slice(0, 2)}
-              </div>
-              <div className="role-list-body">
-                <div className="role-list-header">
-                  <h3>
-                    {item.title} · {item.roomId}
-                  </h3>
-                  <span className="role-overdue-badge">
-                    逾期 {item.overdueDays} 天
-                  </span>
-                </div>
-                <div className="role-list-meta">
-                  <span className="role-area-tag">{item.area}</span>
-                  <span
-                    className="role-badge"
-                    style={{
-                      background: `${typeColor[item.type]}14`,
-                      color: typeColor[item.type],
-                      borderColor: `${typeColor[item.type]}40`,
-                    }}
+          {openTickets.length === 0 ? (
+            <div className="role-empty-state">
+              <p>暂无未关闭工单</p>
+            </div>
+          ) : (
+            openTickets.slice(0, 5).map((ticket) => {
+              const priority = getPriorityFromArea(ticket.area);
+              return (
+                <article key={ticket.id} className="role-list-card">
+                  <div
+                    className="role-list-index"
+                    style={{ background: typeColor["ticket"] }}
                   >
-                    {typeLabel[item.type]}
-                  </span>
-                  <span>负责人: {item.assignee}</span>
-                  <span
-                    className="role-badge"
-                    style={priorityBadgeClass(item.priority)}
-                  >
-                    {item.priority}
-                  </span>
-                </div>
-                <div className="role-list-footer">
-                  <span className="role-deadline">
-                    需立即跟进处理
-                  </span>
-                  <button
-                    className="role-list-action"
-                    style={{ color: roleColor, borderColor: `${roleColor}40` }}
-                    onClick={() => onAction("assignTask")}
-                  >
-                    重新分配
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
+                    工单
+                  </div>
+                  <div className="role-list-body">
+                    <div className="role-list-header">
+                      <h3>
+                        {ticket.anomalyType} · {ticket.roomId}
+                      </h3>
+                      <span
+                        className="role-badge"
+                        style={{
+                          background: `${typeColor["ticket"]}14`,
+                          color: typeColor["ticket"],
+                          borderColor: `${typeColor["ticket"]}40`,
+                        }}
+                      >
+                        {ticket.status}
+                      </span>
+                    </div>
+                    <div className="role-list-meta">
+                      <span className="role-area-tag">{ticket.area}</span>
+                      <span>负责人: {ticket.assignee}</span>
+                      <span
+                        className="role-badge"
+                        style={priorityBadgeClass(priority)}
+                      >
+                        {priority}
+                      </span>
+                    </div>
+                    <div className="role-list-footer">
+                      <span className="role-deadline">
+                        创建: {formatDate(ticket.createdAt)}
+                      </span>
+                      <button
+                        className="role-list-action"
+                        style={{ color: roleColor, borderColor: `${roleColor}40` }}
+                        onClick={() => onAction("assignTask")}
+                      >
+                        分配处理
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
         </div>
       </section>
     </div>
   );
 }
 
-interface RoleDashboardProps {
-  onQuickAction?: (action: string) => void;
-  activeRole: RoleType;
-  onRoleChange: (role: RoleType) => void;
-}
-
-export default function RoleDashboard({ onQuickAction, activeRole, onRoleChange }: RoleDashboardProps) {
-  const [isLoading, setIsLoading] = useState(true);
-  const [dashboardData, setDashboardData] = useState<RoleDashboardData | null>(
-    null
-  );
+export default function RoleDashboard({
+  onQuickAction,
+  activeRole,
+  onRoleChange,
+  inspectionPlans,
+  inspectionRecords,
+  anomalyTickets,
+  anomalyTraces,
+  thresholds,
+  todayPlans,
+}: RoleDashboardProps) {
+  const [isLoading, setIsLoading] = useState(false);
   const [displayedRole, setDisplayedRole] = useState<RoleType>(activeRole);
+  const greeting = getGreeting();
 
-  const loadRoleData = useCallback((role: RoleType) => {
-    setIsLoading(true);
-    setDashboardData(null);
-    setDisplayedRole(role);
-
-    setTimeout(() => {
-      const data = generateRoleDashboardData(role);
-      setDashboardData(data);
-      setIsLoading(false);
-    }, 300);
-  }, []);
-
-  useEffect(() => {
-    loadRoleData(activeRole);
-  }, [activeRole, loadRoleData]);
+  const roleColor = roleColors[activeRole];
 
   const handleRoleChange = (role: RoleType) => {
     if (role !== activeRole) {
-      onRoleChange(role);
+      setIsLoading(true);
+      setDisplayedRole(role);
+      setTimeout(() => {
+        onRoleChange(role);
+        setIsLoading(false);
+      }, 200);
     }
   };
 
@@ -592,33 +907,106 @@ export default function RoleDashboard({ onQuickAction, activeRole, onRoleChange 
     }
   };
 
-  const displayRoleColor = roleColors[displayedRole];
+  const metrics = useMemo(() => {
+    switch (activeRole) {
+      case "巡检员": {
+        const pendingPlans = todayPlans.filter((p) => p.status !== "已完成");
+        const completedPlans = todayPlans.filter((p) => p.status === "已完成");
+        const todayRecords = inspectionRecords.filter((r) =>
+          r.createdAt.startsWith(new Date().toISOString().slice(0, 10))
+        );
+        const anomalyRecords = todayRecords.filter((r) => r.status === "异常");
+        return [
+          { label: "待巡检计划", value: String(pendingPlans.length), status: pendingPlans.length > 3 ? "warn" : "ok" as const },
+          { label: "今日已完成", value: String(completedPlans.length), status: "ok" as const },
+          { label: "今日巡检记录", value: String(todayRecords.length), status: "ok" as const },
+          { label: "异常记录", value: String(anomalyRecords.length), status: anomalyRecords.length > 0 ? "danger" : "ok" as const },
+        ];
+      }
+      case "厂务工程师": {
+        const pendingTickets = anomalyTickets.filter((t) => t.status === "待处理");
+        const processingTickets = anomalyTickets.filter((t) => t.status === "处理中");
+        const faultDevices = inspectionRecords.filter((r) => r.deviceStatus === "故障");
+        const runningDevices = inspectionRecords.filter((r) => r.deviceStatus === "运行中");
+        return [
+          { label: "运行设备", value: String(runningDevices.length), status: "ok" as const },
+          { label: "故障设备", value: String(faultDevices.length), status: faultDevices.length > 0 ? "danger" : "ok" as const },
+          { label: "待处理异常", value: String(pendingTickets.length), status: pendingTickets.length > 3 ? "warn" : "ok" as const },
+          { label: "处理中", value: String(processingTickets.length), status: "ok" as const },
+        ];
+      }
+      case "班组长": {
+        const totalPlans = inspectionPlans.length;
+        const completedPlans = inspectionPlans.filter((p) => p.status === "已完成").length;
+        const openTickets = anomalyTickets.filter((t) => t.status !== "已关闭").length;
+        const activeTraces = anomalyTraces.filter((t) => t.status !== "已恢复").length;
+        return [
+          { label: "巡检计划总数", value: String(totalPlans), status: "ok" as const },
+          { label: "已完成计划", value: String(completedPlans), status: "ok" as const },
+          { label: "未关闭工单", value: String(openTickets), status: openTickets > 5 ? "danger" : openTickets > 2 ? "warn" : "ok" as const },
+          { label: "活跃追踪", value: String(activeTraces), status: activeTraces > 3 ? "warn" : "ok" as const },
+        ];
+      }
+      default:
+        return [];
+    }
+  }, [activeRole, todayPlans, inspectionRecords, anomalyTickets, inspectionPlans, anomalyTraces]);
+
+  const quickActions = useMemo(() => {
+    switch (activeRole) {
+      case "巡检员":
+        return [
+          { label: "录入巡检记录", icon: "📝", action: "createRecord" },
+          { label: "查看巡检计划", icon: "📋", action: "viewSchedule" },
+          { label: "扫描房间二维码", icon: "📱", action: "scanQR" },
+        ];
+      case "厂务工程师":
+        return [
+          { label: "创建设备工单", icon: "🔧", action: "createDeviceTicket" },
+          { label: "阈值配置", icon: "⚙️", action: "configureThreshold" },
+          { label: "查看设备列表", icon: "🖥️", action: "viewDevices" },
+        ];
+      case "班组长":
+        return [
+          { label: "分配巡检任务", icon: "📋", action: "assignTask" },
+          { label: "查看排班表", icon: "📅", action: "viewSchedule" },
+          { label: "导出日报表", icon: "📊", action: "exportReport" },
+        ];
+      default:
+        return [];
+    }
+  }, [activeRole]);
 
   const renderRoleContent = () => {
-    if (!dashboardData) return null;
-
-    switch (displayedRole) {
+    switch (activeRole) {
       case "巡检员":
         return (
           <InspectorView
-            data={dashboardData}
-            roleColor={displayRoleColor}
+            plans={todayPlans}
+            records={inspectionRecords}
+            tickets={anomalyTickets}
+            roleColor={roleColor}
             onAction={handleAction}
           />
         );
       case "厂务工程师":
         return (
           <EngineerView
-            data={dashboardData}
-            roleColor={displayRoleColor}
+            tickets={anomalyTickets}
+            records={inspectionRecords}
+            roleColor={roleColor}
             onAction={handleAction}
           />
         );
       case "班组长":
         return (
           <SupervisorView
-            data={dashboardData}
-            roleColor={displayRoleColor}
+            plans={inspectionPlans}
+            tickets={anomalyTickets}
+            records={inspectionRecords}
+            traces={anomalyTraces}
+            thresholds={thresholds}
+            roleColor={roleColor}
             onAction={handleAction}
           />
         );
@@ -631,11 +1019,11 @@ export default function RoleDashboard({ onQuickAction, activeRole, onRoleChange 
     <section className="role-dashboard panel">
       <div className="role-header">
         <div className="role-header-left">
-          <p className="role-eyebrow" style={{ color: roleColors[activeRole] }}>
+          <p className="role-eyebrow" style={{ color: roleColor }}>
             角色工作台
           </p>
           <h1 className="role-title">
-            {dashboardData ? dashboardData.greeting : "加载中"}，{activeRole}
+            {greeting}，{activeRole}
           </h1>
           <p className="role-subtitle">
             根据您的角色，以下是今日需要关注的重点内容
@@ -695,36 +1083,34 @@ export default function RoleDashboard({ onQuickAction, activeRole, onRoleChange 
         </div>
       )}
 
-      {!isLoading && dashboardData && (
+      {!isLoading && (
         <>
           <div className="role-metrics-grid role-content-fade">
-            {dashboardData.metrics.map((metric, index) => (
+            {metrics.map((metric, index) => (
               <RoleMetricCard
-                key={`${displayedRole}-metric-${index}`}
+                key={`${activeRole}-metric-${index}`}
                 label={metric.label}
                 value={metric.value}
                 status={metric.status}
-                roleColor={displayRoleColor}
+                roleColor={roleColor}
               />
             ))}
           </div>
 
           <div className="role-actions role-content-fade">
-            {dashboardData.quickActions.map((action, index) => (
+            {quickActions.map((action, index) => (
               <QuickActionButton
-                key={`${displayedRole}-action-${index}`}
+                key={`${activeRole}-action-${index}`}
                 label={action.label}
                 icon={action.icon}
                 action={action.action}
-                roleColor={displayRoleColor}
+                roleColor={roleColor}
                 onClick={handleAction}
               />
             ))}
           </div>
 
-          <div className="role-content-fade">
-            {renderRoleContent()}
-          </div>
+          <div className="role-content-fade">{renderRoleContent()}</div>
         </>
       )}
     </section>
