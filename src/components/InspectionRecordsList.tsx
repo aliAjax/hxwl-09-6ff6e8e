@@ -1,11 +1,16 @@
-import type { InspectionRecord } from "../domain";
+import type { InspectionRecord, TicketAnomalyType } from "../domain";
+import { checkAnomalies } from "../domain";
 
 interface InspectionRecordsListProps {
   records: InspectionRecord[];
+  thresholds?: any;
+  onViewTrace?: (record: InspectionRecord, anomalyType: TicketAnomalyType) => void;
 }
 
 export default function InspectionRecordsList({
   records,
+  thresholds = [],
+  onViewTrace,
 }: InspectionRecordsListProps) {
   const getStatusCls = (status: string) =>
     status === "稳定"
@@ -63,6 +68,25 @@ export default function InspectionRecordsList({
                   {record.remark && (
                     <div className="inspection-record-remark">
                       <span>备注:</span> {record.remark}
+                    </div>
+                  )}
+                  {onViewTrace && record.status !== "稳定" && (
+                    <div className="record-trace-entry">
+                      <button
+                        className="record-trace-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const anomalies = checkAnomalies(record, thresholds);
+                          let primaryType: TicketAnomalyType = "粒子异常";
+                          if (anomalies.particle) primaryType = "粒子异常";
+                          else if (anomalies.pressure) primaryType = "压差异常";
+                          else if (anomalies.temp || anomalies.humidity)
+                            primaryType = "温湿度偏移";
+                          onViewTrace(record, primaryType);
+                        }}
+                      >
+                        🔍 查看根因追踪
+                      </button>
                     </div>
                   )}
                 </div>

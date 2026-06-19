@@ -1196,6 +1196,32 @@ input {
   color: var(--primary);
 }
 
+.record-trace-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.record-trace-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #f0fdfa, #ccfbf1);
+  border: 1px solid #5eead4;
+  border-radius: 8px;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.record-trace-btn:hover {
+  background: linear-gradient(135deg, #ccfbf1, #99f6e4);
+  border-color: #2dd4bf;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
+}
+
 .empty-records {
   text-align: center;
   padding: 48px 20px;

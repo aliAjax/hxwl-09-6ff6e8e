@@ -90,16 +90,32 @@ export default function AnomalyTraceDetail({
 
   const [newStatus, setNewStatus] = useState<TraceStatus>(trace.status);
 
-  const roomRecords = getRecordsForRoom(trace.roomId, 20);
-  const relatedTickets = getTicketsForTrace(trace);
-  const closeEval = evaluateTraceCloseCondition(trace);
+  const safeThresholds = Array.isArray(thresholds) ? thresholds : [];
+  const roomRecords = getRecordsForRoom(trace.roomId, 20) || [];
+  const relatedTickets = getTicketsForTrace(trace) || [];
+  const closeEvalRaw = evaluateTraceCloseCondition(trace);
+  const defaultCondition = {
+    particleStable: false,
+    pressureStable: false,
+    tempHumidityStable: false,
+    deviceNormal: false,
+    consecutiveNormalRecords: 0,
+    ticketsClosed: false,
+  };
+  const closeEval = closeEvalRaw && closeEvalRaw.condition
+    ? {
+        ...closeEvalRaw,
+        condition: { ...defaultCondition, ...closeEvalRaw.condition },
+      }
+    : { condition: defaultCondition, canClose: false, warnings: [] as string[] };
   const closedAbnormal = checkClosedTicketAbnormal(trace);
   const inferred = inferRootCauseForTrace(trace.id);
 
   const continuousAnomalyCount = useMemo(() => {
+    if (!roomRecords || roomRecords.length === 0) return 0;
     let count = 0;
     for (let i = 0; i < roomRecords.length; i++) {
-      const anomalies = checkAnomalies(roomRecords[i], thresholds);
+      const anomalies = checkAnomalies(roomRecords[i], safeThresholds);
       const matches =
         (trace.anomalyType === "粒子异常" && anomalies.particle) ||
         (trace.anomalyType === "压差异常" && anomalies.pressure) ||
@@ -112,14 +128,15 @@ export default function AnomalyTraceDetail({
       }
     }
     return count;
-  }, [roomRecords, trace.anomalyType]);
+  }, [roomRecords, trace.anomalyType, safeThresholds]);
 
   const recoveryRelapsePattern = useMemo(() => {
+    if (!roomRecords || roomRecords.length === 0) return [];
     const patterns: string[] = [];
     let prevAnomaly = false;
     let inRecovery = false;
     for (let i = roomRecords.length - 1; i >= 0; i--) {
-      const anomalies = checkAnomalies(roomRecords[i], thresholds);
+      const anomalies = checkAnomalies(roomRecords[i], safeThresholds);
       const matches =
         (trace.anomalyType === "粒子异常" && anomalies.particle) ||
         (trace.anomalyType === "压差异常" && anomalies.pressure) ||
@@ -127,8 +144,7 @@ export default function AnomalyTraceDetail({
           (anomalies.temp || anomalies.humidity));
       if (matches && !prevAnomaly) {
         if (inRecovery) {
-          patterns.push(`${roomRecords[i].createdAt} 再次超限(复发)
-`);
+          patterns.push(`${roomRecords[i].createdAt} 再次超限（复发）`);
         }
         prevAnomaly = true;
         inRecovery = false;
@@ -138,7 +154,7 @@ export default function AnomalyTraceDetail({
       }
     }
     return patterns;
-  }, [roomRecords, trace.anomalyType]);
+  }, [roomRecords, trace.anomalyType, safeThresholds]);
 
   const latestDeviceStatus = roomRecords[0]?.deviceStatus || "未知";
 

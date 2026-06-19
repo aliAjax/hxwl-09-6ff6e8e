@@ -96,7 +96,7 @@ export interface UseAppStoreReturn {
     record: InspectionRecord,
     anomalyType: TicketAnomalyType,
     ticketId?: number
-  ) => void;
+  ) => Promise<AnomalyTrace>;
   addInspectionPlan: (plan: InspectionPlan) => void;
   createInspectionPlan: (input: {
     date: string;
@@ -442,7 +442,11 @@ export function useAppStore(): UseAppStoreReturn {
   );
 
   const createOrUpdateTraceFromRecord = useCallback(
-    (record: InspectionRecord, anomalyType: TicketAnomalyType, ticketId?: number) => {
+    async (
+      record: InspectionRecord,
+      anomalyType: TicketAnomalyType,
+      ticketId?: number
+    ): Promise<AnomalyTrace> => {
       const existing = appService.traces.findTraceForRoom(
         anomalyTraces,
         record.roomId,
@@ -459,6 +463,7 @@ export function useAppStore(): UseAppStoreReturn {
           updated.linkedTicketIds = [...updated.linkedTicketIds, ticketId];
         }
         updateAnomalyTrace(updated);
+        return updated;
       } else {
         const traceInput: AnomalyTraceInput = {
           roomId: record.roomId,
@@ -467,7 +472,8 @@ export function useAppStore(): UseAppStoreReturn {
           initialRecordId: record.id,
           triggerTicketId: ticketId,
         };
-        createAnomalyTrace(traceInput);
+        const newTrace = await createAnomalyTrace(traceInput);
+        return newTrace;
       }
     },
     [anomalyTraces, thresholds, updateAnomalyTrace, createAnomalyTrace]

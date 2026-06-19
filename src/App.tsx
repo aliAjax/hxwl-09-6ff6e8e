@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import "./styles.css";
 import {
   MetricCard,
@@ -106,6 +106,11 @@ function App() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const [traceEntryRecord, setTraceEntryRecord] = useState<{
+    record: any;
+    anomalyType: TicketAnomalyType;
+  } | null>(null);
+  const traceSectionRef = useRef<HTMLDivElement>(null);
 
   const handleAddTicket = (
     ticketData: Omit<
@@ -181,6 +186,15 @@ function App() {
       : `同步完成：记录 ${result.syncedRecords}、工单 ${result.syncedTickets}、计划 ${result.syncedPlans}`;
     setSyncMessage(msg);
     setTimeout(() => setSyncMessage(""), 3500);
+  };
+
+  const handleViewTraceFromRecord = (record: any, anomalyType: TicketAnomalyType) => {
+    setTraceEntryRecord({ record, anomalyType });
+    setTimeout(() => {
+      document
+        .querySelector(".trace-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
   };
 
   const handleQuickAction = (action: string) => {
@@ -310,6 +324,8 @@ function App() {
         updateTraceStatus={updateTraceStatus}
         markTraceRecovery={markTraceRecovery}
         createOrUpdateTraceFromRecord={createOrUpdateTraceFromRecord}
+        externalSelectedRecord={traceEntryRecord}
+        onClearExternalRecord={() => setTraceEntryRecord(null)}
       />
 
       <ThresholdConfig thresholds={thresholds} onUpdate={setThresholds} />
@@ -373,7 +389,11 @@ function App() {
         onStatusChange={updateAnomalyTicketStatus}
       />
 
-      <InspectionRecordsList records={inspectionRecords} />
+      <InspectionRecordsList
+        records={inspectionRecords}
+        thresholds={thresholds}
+        onViewTrace={handleViewTraceFromRecord}
+      />
 
       <DataExportPanel
         onExportRecords={exportRecordsCsv}

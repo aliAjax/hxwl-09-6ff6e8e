@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type {
   AnomalyTrace,
   TraceStatus,
@@ -51,7 +51,9 @@ interface AnomalyTraceListProps {
     record: InspectionRecord,
     anomalyType: TicketAnomalyType,
     ticketId?: number
-  ) => void;
+  ) => Promise<any>;
+  externalSelectedRecord?: { record: InspectionRecord; anomalyType: TicketAnomalyType } | null;
+  onClearExternalRecord?: () => void;
   onEnterTraceFromRecord?: (record: InspectionRecord) => void;
 }
 
@@ -72,12 +74,40 @@ export default function AnomalyTraceList({
   updateTraceStatus,
   markTraceRecovery,
   createOrUpdateTraceFromRecord,
+  externalSelectedRecord,
+  onClearExternalRecord,
 }: AnomalyTraceListProps) {
   const [statusFilter, setStatusFilter] = useState<TraceStatusFilter>("全部");
   const [areaFilter, setAreaFilter] = useState<CleanArea | "全部">("全部");
   const [typeFilter, setTypeFilter] = useState<TicketAnomalyType | "全部">("全部");
   const [roomSearch, setRoomSearch] = useState("");
   const [selectedTraceId, setSelectedTraceId] = useState<number | null>(null);
+  const [pendingTrace, setPendingTrace] = useState<AnomalyTrace | null>(null);
+
+  useEffect(() => {
+    if (!externalSelectedRecord) return;
+    const { record, anomalyType } = externalSelectedRecord;
+    const existing = getTracesForRoom(record.roomId).find(
+      (t) => t.anomalyType === anomalyType
+    );
+    if (existing) {
+      setPendingTrace(null);
+      setSelectedTraceId(existing.id);
+    } else {
+      createOrUpdateTraceFromRecord(record, anomalyType).then((newTrace) => {
+        if (newTrace) {
+          setPendingTrace(newTrace);
+          setSelectedTraceId(newTrace.id);
+        }
+      });
+    }
+    onClearExternalRecord?.();
+  }, [externalSelectedRecord]);
+
+  const selectedTrace = useMemo(() => {
+    if (pendingTrace) return pendingTrace;
+    return traces.find((t) => t.id === selectedTraceId) || null;
+  }, [traces, selectedTraceId, pendingTrace]);
 
   const filteredTraces = useMemo(() => {
     return traces.filter((t) => {
@@ -101,13 +131,21 @@ export default function AnomalyTraceList({
     checkClosedTicketAbnormal(t)
   ).length;
 
-  const selectedTrace = traces.find((t) => t.id === selectedTraceId);
+  const abnormalRecords = useMemo(() => {
+    return records.filter((r) => {
+      const anomalies = checkAnomalies(r, thresholds);
+      return !anomalies.none;
+    });
+  }, [records, thresholds]);
 
   if (selectedTrace) {
     return (
       <AnomalyTraceDetail
         trace={selectedTrace}
-        onBack={() => setSelectedTraceId(null)}
+        onBack={() => {
+          setSelectedTraceId(null);
+          setPendingTrace(null);
+        }}
         thresholds={thresholds}
         getRecordsForRoom={getRecordsForRoom}
         getTicketsForTrace={getTicketsForTrace}
@@ -123,13 +161,6 @@ export default function AnomalyTraceList({
       />
     );
   }
-
-  const abnormalRecords = useMemo(() => {
-    return records.filter((r) => {
-      const anomalies = checkAnomalies(r, thresholds);
-      return !anomalies.none;
-    });
-  }, [records, thresholds]);
 
   return (
     <section className="trace-section panel">
@@ -177,16 +208,24 @@ export default function AnomalyTraceList({
                 <div
                   key={record.id}
                   className="trace-entry-card"
-                  onClick={() => {
+                  onClick={async () => {
                     if (existingTraces.length > 0) {
+                      setPendingTrace(null);
                       setSelectedTraceId(existingTraces[0].id);
                     } else {
-                      types.forEach((t) =>
-                        createOrUpdateTraceFromRecord(record, t)
-                      );
-                      const updatedTraces = getTracesForRoom(record.roomId);
-                      if (updatedTraces.length > 0) {
-                        setSelectedTraceId(updatedTraces[0].id);
+                      const primaryType = types[0];
+                      try {
+                        const newTrace =
+                          await createOrUpdateTraceFromRecord(
+                            record,
+                            primaryType
+                          );
+                        if (newTrace) {
+                          setPendingTrace(newTrace);
+                          setSelectedTraceId(newTrace.id);
+                        }
+                      } catch (e) {
+                        console.error("创建追踪失败:", e);
                       }
                     }
                   }}
@@ -286,7 +325,10 @@ export default function AnomalyTraceList({
                 className={`trace-card ${
                   closedAbnormal ? "trace-card-warning" : ""
                 }`}
-                onClick={() => setSelectedTraceId(trace.id)}
+                onClick={() => {
+                  setPendingTrace(null);
+                  setSelectedTraceId(trace.id);
+                }}
               >
                 <div className="trace-card-header">
                   <div className="trace-card-room">
