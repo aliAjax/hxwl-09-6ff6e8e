@@ -1,4 +1,4 @@
-const CACHE_VERSION = "hxwl09-v1.0.0";
+const CACHE_VERSION = "hxwl09-v1.0.1";
 const PRECACHE = "hxwl09-precache-" + CACHE_VERSION;
 const RUNTIME_STATIC = "hxwl09-runtime-static-" + CACHE_VERSION;
 const RUNTIME_FONT = "hxwl09-runtime-font-" + CACHE_VERSION;
@@ -18,12 +18,44 @@ const PRECACHE_URLS = [
 const STATIC_EXT = /\.(?:js|css|mjs|wasm|woff2?|ttf|eot)$/i;
 const IMG_EXT = /\.(?:png|jpe?g|gif|svg|ico|webp|avif)$/i;
 const FONT_RE = /fonts\.(?:googleapis|gstatic)\.com|cdn/i;
+const ASSET_RE = /(?:src|href)=["']([^"']*\/assets\/[^"']+\.(?:js|css|mjs))["']/g;
+
+function normalizeSameOriginUrl(value) {
+  try {
+    const url = new URL(value, self.location.origin);
+    if (url.origin !== self.location.origin) return null;
+    return url.pathname + url.search;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function discoverAppShellAssets() {
+  try {
+    const response = await fetch("/index.html", { cache: "reload" });
+    if (!response || !response.ok) return [];
+
+    const html = await response.text();
+    const assets = new Set();
+    let match;
+    while ((match = ASSET_RE.exec(html)) !== null) {
+      const assetUrl = normalizeSameOriginUrl(match[1]);
+      if (assetUrl) assets.add(assetUrl);
+    }
+
+    return [...assets];
+  } catch (err) {
+    return [];
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(PRECACHE).then((cache) => {
-      return cache.addAll(
-        PRECACHE_URLS.map((u) => new Request(u, { cache: "reload" }))
+    caches.open(PRECACHE).then(async (cache) => {
+      const appShellAssets = await discoverAppShellAssets();
+      const urls = [...new Set([...PRECACHE_URLS, ...appShellAssets])];
+      await cache.addAll(
+        urls.map((u) => new Request(u, { cache: "reload" }))
       );
     }).then(() => self.skipWaiting())
   );
