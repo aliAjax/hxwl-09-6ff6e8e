@@ -18,6 +18,7 @@ import type {
   RecordStatusResult,
   RootCauseCategory,
   SyncConflict,
+  SyncEntityType,
   SyncQueueItem,
   SyncStatus,
   TicketAnomalyType,
@@ -317,11 +318,35 @@ export function useAppStore(): UseAppStoreReturn {
       await refreshSyncStatus();
     });
 
+    const unsubscribeData = appService.sync.onDataChange(
+      async (entityType: SyncEntityType) => {
+        if (!mounted) return;
+        switch (entityType) {
+          case "inspectionRecord":
+            setInspectionRecordsState(await localDBRepository.getInspectionRecords());
+            break;
+          case "anomalyTicket":
+            setAnomalyTicketsState(await localDBRepository.getAnomalyTickets());
+            break;
+          case "inspectionPlan":
+            setInspectionPlansState(await localDBRepository.getInspectionPlans());
+            break;
+          case "anomalyTrace":
+            setAnomalyTracesState(await localDBRepository.getAnomalyTraces());
+            break;
+          case "threshold":
+            setThresholdsState(await localDBRepository.getThresholds());
+            break;
+        }
+      }
+    );
+
     return () => {
       mounted = false;
       unsubscribeOnline();
       unsubscribeQueue();
       unsubscribeConflict();
+      unsubscribeData();
     };
   }, [refreshSyncStatus]);
 
@@ -337,66 +362,9 @@ export function useAppStore(): UseAppStoreReturn {
     setThresholdsState((prev) => {
       const next = resolveUpdater(t, prev);
 
-      const isThresholdChanged = (a: AreaThreshold, b: AreaThreshold): boolean => {
-        if (a.area !== b.area) return true;
-        if (a.particle05um !== b.particle05um) return true;
-        if (a.particle5um !== b.particle5um) return true;
-        if (a.pressure?.min !== b.pressure?.min) return true;
-        if (a.pressure?.max !== b.pressure?.max) return true;
-        if (a.temperature?.min !== b.temperature?.min) return true;
-        if (a.temperature?.max !== b.temperature?.max) return true;
-        if (a.humidity?.min !== b.humidity?.min) return true;
-        if (a.humidity?.max !== b.humidity?.max) return true;
-        return false;
-      };
-
       (async () => {
         try {
-          const changedIndices: number[] = [];
-          const changedThresholds: AreaThreshold[] = [];
-
-          for (let i = 0; i < next.length; i++) {
-            const nextTh = next[i];
-            const prevTh = prev.find((p) => p.area === nextTh.area);
-
-            if (!prevTh) {
-              changedIndices.push(i);
-              changedThresholds.push(nextTh);
-            } else if (isThresholdChanged(prevTh, nextTh)) {
-              changedIndices.push(i);
-              changedThresholds.push(nextTh);
-            }
-          }
-
-          if (changedThresholds.length === 0) {
-            await localDBRepository.saveThresholds(next);
-            return;
-          }
-
-          const finalThresholds = [...next];
-          let hasUpdates = false;
-
-          for (let j = 0; j < changedThresholds.length; j++) {
-            const idx = changedIndices[j];
-            const changed = changedThresholds[j];
-
-            const queueItem = await appService.enqueueEntity(
-              "threshold",
-              changed,
-              "update"
-            );
-            if (queueItem && queueItem.dataSnapshot) {
-              finalThresholds[idx] =
-                queueItem.dataSnapshot as unknown as AreaThreshold;
-              hasUpdates = true;
-            }
-          }
-
-          if (hasUpdates) {
-            setThresholdsState(finalThresholds);
-          }
-
-          await localDBRepository.saveThresholds(finalThresholds);
+          await appService.sync.updateThresholds(next);
         } catch (err) {
           console.error("Failed to process thresholds update:", err);
           localDBRepository.saveThresholds(next).catch((e) =>
@@ -413,7 +381,7 @@ export function useAppStore(): UseAppStoreReturn {
     (r: Updater<InspectionRecord[]>) => {
       setInspectionRecordsState((prev) => {
         const next = resolveUpdater(r, prev);
-        localDBRepository.saveAllInspectionRecords(next).catch((err) =>
+        appService.sync.saveAllRecords(next).catch((err) =>
           console.error("Failed to save inspection records:", err)
         );
         return next;
@@ -425,7 +393,7 @@ export function useAppStore(): UseAppStoreReturn {
   const setAnomalyTickets = useCallback((t: Updater<AnomalyTicket[]>) => {
     setAnomalyTicketsState((prev) => {
       const next = resolveUpdater(t, prev);
-      localDBRepository.saveAllAnomalyTickets(next).catch((err) =>
+      appService.sync.saveAllTickets(next).catch((err) =>
         console.error("Failed to save anomaly tickets:", err)
       );
       return next;
@@ -435,7 +403,7 @@ export function useAppStore(): UseAppStoreReturn {
   const setAnomalyTraces = useCallback((t: Updater<AnomalyTrace[]>) => {
     setAnomalyTracesState((prev) => {
       const next = resolveUpdater(t, prev);
-      localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
+      appService.sync.saveAllTraces(next).catch((err) =>
         console.error("Failed to save anomaly traces:", err)
       );
       return next;
@@ -445,7 +413,7 @@ export function useAppStore(): UseAppStoreReturn {
   const setInspectionPlans = useCallback((p: Updater<InspectionPlan[]>) => {
     setInspectionPlansState((prev) => {
       const next = resolveUpdater(p, prev);
-      localDBRepository.saveAllInspectionPlans(next).catch((err) =>
+      appService.sync.saveAllPlans(next).catch((err) =>
       console.error("Failed to save inspection plans:", err)
     );
       return next;
@@ -465,8 +433,8 @@ export function useAppStore(): UseAppStoreReturn {
   const addInspectionRecord = useCallback(
     (record: InspectionRecord) => {
       setInspectionRecords((prev) => [record, ...prev]);
-      appService.enqueueEntity("inspectionRecord", record, "create").catch((e) =>
-        console.error("入队巡检记录失败:", e)
+      appService.sync.addRecord(record).catch((e) =>
+        console.error("添加巡检记录失败:", e)
       );
     },
     [setInspectionRecords]
@@ -492,8 +460,8 @@ export function useAppStore(): UseAppStoreReturn {
   const addAnomalyTicket = useCallback(
     (ticket: AnomalyTicket) => {
       setAnomalyTickets((prev) => [...prev, ticket]);
-      appService.enqueueEntity("anomalyTicket", ticket, "create").catch((e) =>
-        console.error("入队异常工单失败:", e)
+      appService.sync.addTicket(ticket).catch((e) =>
+        console.error("添加异常工单失败:", e)
       );
     },
     [setAnomalyTickets]
@@ -502,8 +470,8 @@ export function useAppStore(): UseAppStoreReturn {
   const addAnomalyTrace = useCallback(
     (trace: AnomalyTrace) => {
       setAnomalyTraces((prev) => [trace, ...prev]);
-      appService.enqueueEntity("anomalyTrace", trace, "create").catch((e) =>
-        console.error("入队异常追踪失败:", e)
+      appService.sync.addTrace(trace).catch((e) =>
+        console.error("添加异常追踪失败:", e)
       );
     },
     [setAnomalyTraces]
@@ -511,15 +479,11 @@ export function useAppStore(): UseAppStoreReturn {
 
   const updateAnomalyTrace = useCallback(
     (trace: AnomalyTrace) => {
-      const updated = { ...trace, synced: false };
       setAnomalyTraces((prev) =>
-        prev.map((t) => (t.id === trace.id ? updated : t))
+        prev.map((t) => (t.id === trace.id ? trace : t))
       );
-      localDBRepository.saveAnomalyTrace(updated).catch(
-        (err) => console.error("Failed to update anomaly trace:", err)
-      );
-      appService.enqueueEntity("anomalyTrace", updated, "update").catch((e) =>
-        console.error("入队异常追踪更新失败:", e)
+      appService.sync.updateTrace(trace).catch((e) =>
+        console.error("更新异常追踪失败:", e)
       );
     },
     [setAnomalyTraces]
@@ -544,18 +508,12 @@ export function useAppStore(): UseAppStoreReturn {
       setAnomalyTraces((prev) => {
         const next = prev.map((t) => {
           if (t.id !== traceId) return t;
-          const updated = {
-            ...appService.traces.updateRootCause(t, rootCause, detail, confidence),
-            synced: false,
-          };
-          appService
-            .enqueueEntity("anomalyTrace", updated, "update")
-            .catch((e) => console.error("入队异常追踪根因更新失败:", e));
+          const updated = appService.traces.updateRootCause(t, rootCause, detail, confidence);
+          appService.sync.updateTrace(updated).catch((e) =>
+            console.error("更新异常追踪根因失败:", e)
+          );
           return updated;
         });
-        localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
-          console.error("Failed to save traces:", err)
-        );
         return next;
       });
     },
@@ -574,25 +532,19 @@ export function useAppStore(): UseAppStoreReturn {
       setAnomalyTraces((prev) => {
         const next = prev.map((t) => {
           if (t.id !== traceId) return t;
-          const updated = {
-            ...appService.traces.addProcessingStep(
-              t,
-              action,
-              description,
-              operator,
-              beforeStatus,
-              afterStatus
-            ),
-            synced: false,
-          };
-          appService
-            .enqueueEntity("anomalyTrace", updated, "update")
-            .catch((e) => console.error("入队异常追踪步骤更新失败:", e));
+          const updated = appService.traces.addProcessingStep(
+            t,
+            action,
+            description,
+            operator,
+            beforeStatus,
+            afterStatus
+          );
+          appService.sync.updateTrace(updated).catch((e) =>
+            console.error("更新异常追踪步骤失败:", e)
+          );
           return updated;
         });
-        localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
-          console.error("Failed to save traces:", err)
-        );
         return next;
       });
     },
@@ -604,15 +556,12 @@ export function useAppStore(): UseAppStoreReturn {
       setAnomalyTraces((prev) => {
         const next = prev.map((t) => {
           if (t.id !== traceId) return t;
-          const updated = { ...t, status, synced: false };
-          appService
-            .enqueueEntity("anomalyTrace", updated, "update")
-            .catch((e) => console.error("入队异常追踪状态更新失败:", e));
+          const updated = { ...t, status };
+          appService.sync.updateTrace(updated).catch((e) =>
+            console.error("更新异常追踪状态失败:", e)
+          );
           return updated;
         });
-        localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
-          console.error("Failed to save traces:", err)
-        );
         return next;
       });
     },
@@ -624,18 +573,12 @@ export function useAppStore(): UseAppStoreReturn {
       setAnomalyTraces((prev) => {
         const next = prev.map((t) => {
           if (t.id !== traceId) return t;
-          const updated = {
-            ...appService.traces.markRecovery(t, operator),
-            synced: false,
-          };
-          appService
-            .enqueueEntity("anomalyTrace", updated, "update")
-            .catch((e) => console.error("入队异常追踪恢复标记失败:", e));
+          const updated = appService.traces.markRecovery(t, operator);
+          appService.sync.updateTrace(updated).catch((e) =>
+            console.error("标记异常追踪恢复失败:", e)
+          );
           return updated;
         });
-        localDBRepository.saveAllAnomalyTraces(next).catch((err) =>
-          console.error("Failed to save traces:", err)
-        );
         return next;
       });
     },
@@ -780,17 +723,13 @@ export function useAppStore(): UseAppStoreReturn {
                 toStatus: status,
               }]
             : ticket.processNotes,
-          synced: false,
         };
         setAnomalyTickets((prev) =>
           prev.map((t) => (t.id === id ? updatedTicket : t))
         );
-        localDBRepository.updateTicketStatus(id, status).catch((err) =>
-          console.error("Failed to update ticket status:", err)
+        appService.sync.updateTicket(updatedTicket).catch((e) =>
+          console.error("更新异常工单状态失败:", e)
         );
-        appService
-          .enqueueEntity("anomalyTicket", updatedTicket, "update")
-          .catch((e) => console.error("入队工单状态更新失败:", e));
 
         const relatedTrace = appService.traces.findTraceForRoomIncludingRecovered(
           anomalyTraces,
@@ -813,8 +752,8 @@ export function useAppStore(): UseAppStoreReturn {
   const addInspectionPlan = useCallback(
     (plan: InspectionPlan) => {
       setInspectionPlans((prev) => [plan, ...prev]);
-      appService.enqueueEntity("inspectionPlan", plan, "create").catch((e) =>
-        console.error("入队巡检计划失败:", e)
+      appService.sync.addPlan(plan).catch((e) =>
+        console.error("添加巡检计划失败:", e)
       );
     },
     [setInspectionPlans]
@@ -841,16 +780,13 @@ export function useAppStore(): UseAppStoreReturn {
     (planId: number, status: PlanStatus) => {
       const plan = inspectionPlans.find((p) => p.id === planId);
       setInspectionPlans((prev) =>
-        prev.map((p) => (p.id === planId ? { ...p, status, synced: false } : p))
-      );
-      localDBRepository.updatePlanStatus(planId, status).catch((err) =>
-        console.error("Failed to update plan status:", err)
+        prev.map((p) => (p.id === planId ? { ...p, status } : p))
       );
       if (plan) {
-        const updated = { ...plan, status, synced: false };
-        appService
-          .enqueueEntity("inspectionPlan", updated, "update")
-          .catch((e) => console.error("入队计划状态更新失败:", e));
+        const updated = { ...plan, status };
+        appService.sync.updatePlan(updated).catch((e) =>
+          console.error("更新巡检计划状态失败:", e)
+        );
       }
     },
     [setInspectionPlans, inspectionPlans]
@@ -866,20 +802,15 @@ export function useAppStore(): UseAppStoreReturn {
       const updated = {
         ...plan,
         linkedRecordIds: [...linkedRecordIds, recordId],
-        synced: false,
       };
 
       setInspectionPlans((prev) =>
         prev.map((p) => (p.id === planId ? updated : p))
       );
 
-      localDBRepository.addLinkedRecordToPlan(planId, recordId).catch((err) =>
-        console.error("Failed to link record to plan:", err)
+      appService.sync.updatePlan(updated).catch((e) =>
+        console.error("关联记录到计划失败:", e)
       );
-
-      appService
-        .enqueueEntity("inspectionPlan", updated, "update")
-        .catch((e) => console.error("入队计划关联记录失败:", e));
     },
     [setInspectionPlans, inspectionPlans]
   );
@@ -1194,60 +1125,46 @@ export function useAppStore(): UseAppStoreReturn {
   }, [refreshSyncStatus]);
 
   const syncPending = useCallback(async () => {
-    const result = await appService.pushPending();
-    await refreshSyncStatus();
-    return result;
-  }, [refreshSyncStatus]);
+    return appService.pushPending();
+  }, []);
 
   const processQueue = useCallback(async (
     scope: "all" | "pending" | "failed" = "all",
     itemIds?: number[]
   ) => {
-    const result = await appService.processQueue(scope, itemIds);
-    await refreshSyncStatus();
-    return result;
-  }, [refreshSyncStatus]);
+    return appService.processQueue(scope, itemIds);
+  }, []);
 
   const retryQueueItem = useCallback(async (itemId: number) => {
-    const result = await appService.retryQueueItem(itemId);
-    await refreshSyncStatus();
-    return result;
-  }, [refreshSyncStatus]);
+    return appService.retryQueueItem(itemId);
+  }, []);
 
   const retryAllFailed = useCallback(async () => {
-    const result = await appService.retryAllFailed();
-    await refreshSyncStatus();
-    return result;
-  }, [refreshSyncStatus]);
+    return appService.retryAllFailed();
+  }, []);
 
   const removeQueueItem = useCallback(async (itemId: number) => {
     await appService.removeQueueItem(itemId);
-    await refreshSyncStatus();
-  }, [refreshSyncStatus]);
+  }, []);
 
   const clearSyncedQueueItems = useCallback(async () => {
     await appService.clearSyncedQueueItems();
-    await refreshSyncStatus();
-  }, [refreshSyncStatus]);
+  }, []);
 
   const resolveConflict = useCallback(async (
     conflictId: number,
     resolution: "keepLocal" | "useRemote"
   ): Promise<{ success: boolean; errorMessage?: string }> => {
-    const result = await appService.resolveConflict(conflictId, resolution);
-    await refreshSyncStatus();
-    return result;
-  }, [refreshSyncStatus]);
+    return appService.resolveConflict(conflictId, resolution);
+  }, []);
 
   const clearResolvedConflicts = useCallback(async (): Promise<void> => {
     await appService.clearResolvedConflicts();
-    await refreshSyncStatus();
-  }, [refreshSyncStatus]);
+  }, []);
 
   const removeConflict = useCallback(async (conflictId: number): Promise<void> => {
     await appService.removeConflict(conflictId);
-    await refreshSyncStatus();
-  }, [refreshSyncStatus]);
+  }, []);
 
   return {
     thresholds,

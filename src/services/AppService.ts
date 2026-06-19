@@ -18,7 +18,7 @@ import { InspectionService } from "./InspectionService";
 import { TicketService } from "./TicketService";
 import { PlanService } from "./PlanService";
 import { ExportService } from "./ExportService";
-import { SyncService } from "./SyncService";
+import { SyncCoordinator } from "./SyncCoordinator";
 import { FilterService } from "./FilterService";
 import { AnomalyTraceService } from "./AnomalyTraceService";
 
@@ -42,7 +42,7 @@ export class AppService {
   readonly traces: AnomalyTraceService;
   readonly plans: PlanService;
   readonly export: ExportService;
-  readonly sync: SyncService;
+  readonly sync: SyncCoordinator;
   readonly filters: FilterService;
   private readonly repo: AppRepository;
 
@@ -54,7 +54,7 @@ export class AppService {
     this.traces = new AnomalyTraceService();
     this.plans = new PlanService(repo);
     this.export = new ExportService();
-    this.sync = new SyncService(repo, remote);
+    this.sync = new SyncCoordinator(repo, remote);
     this.filters = new FilterService(repo);
   }
 
@@ -151,7 +151,7 @@ export class AppService {
   }
 
   async clearSyncedQueueItems(): Promise<void> {
-    return this.sync.clearSyncedItems();
+    return this.sync.clearSyncedQueueItems();
   }
 
   async migrateUnsyncedToQueue(): Promise<number> {
