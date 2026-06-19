@@ -68,6 +68,7 @@ export interface UseAppStoreReturn {
       temperature: number;
       humidity: number;
       sourceRecordId?: number;
+      sourceRecord?: InspectionRecord;
     },
     anomalyType: TicketAnomalyType
   ) => Promise<{ ticket: AnomalyTicket; trace: AnomalyTrace }>;
@@ -503,6 +504,7 @@ export function useAppStore(): UseAppStoreReturn {
         temperature: number;
         humidity: number;
         sourceRecordId?: number;
+        sourceRecord?: InspectionRecord;
       },
       anomalyType: TicketAnomalyType
     ) => {
@@ -513,9 +515,9 @@ export function useAppStore(): UseAppStoreReturn {
       );
       addAnomalyTicket(ticket);
 
-      const sourceRecord = readings.sourceRecordId
+      const sourceRecord = readings.sourceRecord ?? (readings.sourceRecordId
         ? inspectionRecords.find(r => r.id === readings.sourceRecordId)
-        : undefined;
+        : undefined);
       const trace = await createOrUpdateTraceFromTicket(ticket, sourceRecord);
 
       return { ticket, trace };

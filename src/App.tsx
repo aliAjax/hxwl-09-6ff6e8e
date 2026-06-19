@@ -178,6 +178,7 @@ function App() {
               temperature: record.temperature,
               humidity: record.humidity,
               sourceRecordId: record.id,
+              sourceRecord: record,
             },
             anomalyType
           );
