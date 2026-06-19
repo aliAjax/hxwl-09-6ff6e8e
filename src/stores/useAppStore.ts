@@ -336,9 +336,75 @@ export function useAppStore(): UseAppStoreReturn {
   const setThresholds = useCallback((t: Updater<AreaThreshold[]>) => {
     setThresholdsState((prev) => {
       const next = resolveUpdater(t, prev);
-      localDBRepository.saveThresholds(next).catch((err) =>
-        console.error("Failed to save thresholds:", err)
-      );
+
+      const isThresholdChanged = (a: AreaThreshold, b: AreaThreshold): boolean => {
+        if (a.area !== b.area) return true;
+        if (a.particle05um !== b.particle05um) return true;
+        if (a.particle5um !== b.particle5um) return true;
+        if (a.pressure?.min !== b.pressure?.min) return true;
+        if (a.pressure?.max !== b.pressure?.max) return true;
+        if (a.temperature?.min !== b.temperature?.min) return true;
+        if (a.temperature?.max !== b.temperature?.max) return true;
+        if (a.humidity?.min !== b.humidity?.min) return true;
+        if (a.humidity?.max !== b.humidity?.max) return true;
+        return false;
+      };
+
+      (async () => {
+        try {
+          const changedIndices: number[] = [];
+          const changedThresholds: AreaThreshold[] = [];
+
+          for (let i = 0; i < next.length; i++) {
+            const nextTh = next[i];
+            const prevTh = prev.find((p) => p.area === nextTh.area);
+
+            if (!prevTh) {
+              changedIndices.push(i);
+              changedThresholds.push(nextTh);
+            } else if (isThresholdChanged(prevTh, nextTh)) {
+              changedIndices.push(i);
+              changedThresholds.push(nextTh);
+            }
+          }
+
+          if (changedThresholds.length === 0) {
+            await localDBRepository.saveThresholds(next);
+            return;
+          }
+
+          const finalThresholds = [...next];
+          let hasUpdates = false;
+
+          for (let j = 0; j < changedThresholds.length; j++) {
+            const idx = changedIndices[j];
+            const changed = changedThresholds[j];
+
+            const queueItem = await appService.enqueueEntity(
+              "threshold",
+              changed,
+              "update"
+            );
+            if (queueItem && queueItem.dataSnapshot) {
+              finalThresholds[idx] =
+                queueItem.dataSnapshot as unknown as AreaThreshold;
+              hasUpdates = true;
+            }
+          }
+
+          if (hasUpdates) {
+            setThresholdsState(finalThresholds);
+          }
+
+          await localDBRepository.saveThresholds(finalThresholds);
+        } catch (err) {
+          console.error("Failed to process thresholds update:", err);
+          localDBRepository.saveThresholds(next).catch((e) =>
+            console.error("Failed to save thresholds:", e)
+          );
+        }
+      })();
+
       return next;
     });
   }, []);

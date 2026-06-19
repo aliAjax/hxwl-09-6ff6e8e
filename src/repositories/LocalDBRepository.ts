@@ -552,7 +552,7 @@ export class LocalDBRepository implements AppRepository {
         );
         if (existing) {
           await promisifyRequest(
-            store.put({ ...existing, status, synced: false })
+            store.put({ ...existing, status, synced: false, version: (existing.version ?? 0) + 1, updatedAt: new Date().toISOString().slice(0, 16).replace("T", " ") })
           );
         }
       }
@@ -656,7 +656,7 @@ export class LocalDBRepository implements AppRepository {
         );
         if (existing) {
           await promisifyRequest(
-            store.put({ ...existing, status, synced: false })
+            store.put({ ...existing, status, synced: false, version: (existing.version ?? 0) + 1, updatedAt: new Date().toISOString().slice(0, 16).replace("T", " ") })
           );
         }
       }
@@ -682,6 +682,8 @@ export class LocalDBRepository implements AppRepository {
                 ...existing,
                 linkedRecordIds: [...linkedRecordIds, recordId],
                 synced: false,
+                version: (existing.version ?? 0) + 1,
+                updatedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
               })
             );
           }
