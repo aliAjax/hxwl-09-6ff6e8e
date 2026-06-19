@@ -248,7 +248,7 @@ export const TRACE_STATUS_TAG_CLASS: Record<TraceStatus, string> = {
 };
 
 export const DB_NAME = "hxwl09_cleanroom_db";
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 export const APP_VERSION = "1.2.0";
 
 export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> = {

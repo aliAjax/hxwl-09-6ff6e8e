@@ -230,14 +230,13 @@ export class SyncService {
   }
 
   async migrateUnsyncedToQueue(): Promise<number> {
-    const [records, tickets, plans, traces, thresholds] = await Promise.all([
+    const [records, tickets, plans, traces] = await Promise.all([
       this.repo.getInspectionRecords(),
       this.repo.getAnomalyTickets(),
       this.repo.getInspectionPlans(),
       this.repo.getAnomalyTraces
         ? this.repo.getAnomalyTraces()
         : Promise.resolve([]),
-      this.repo.getThresholds(),
     ]);
 
     const existingQueue = await this.repo.getSyncQueue();
@@ -271,13 +270,6 @@ export class SyncService {
         const result = await this.enqueueEntity(type, entity, "create");
         if (result) created++;
       }
-    }
-
-    for (const threshold of thresholds) {
-      const key = `threshold:${threshold.area}`;
-      if (existingFingerprints.has(key)) continue;
-      const result = await this.enqueueEntity("threshold", threshold, "update");
-      if (result) created++;
     }
 
     return created;

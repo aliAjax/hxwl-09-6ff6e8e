@@ -231,7 +231,75 @@ const versionScripts: MigrationScript[] = [
       await logMigrationSuccess(context, 5, 0);
     },
   },
+  {
+    version: 6,
+    name: "v6_add_sync_conflicts",
+    description: "新增同步冲突表并补齐可同步数据的版本字段",
+    up: async (db, tx, context) => {
+      ensureSyncConflictsStore(db);
+
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.thresholds,
+        backfillThreshold
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.inspectionRecords,
+        backfillInspectionRecord
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.anomalyTickets,
+        backfillAnomalyTicket
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.inspectionPlans,
+        backfillInspectionPlan
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.anomalyTraces,
+        backfillAnomalyTrace
+      );
+
+      await logMigrationSuccess(context, 6, 0);
+    },
+  },
+  {
+    version: 7,
+    name: "v7_repair_missing_sync_conflicts",
+    description: "修复已升级到 v6 但缺少同步冲突表的本地数据库",
+    up: async (db, _tx, context) => {
+      ensureSyncConflictsStore(db);
+      await logMigrationSuccess(context, 7, 0);
+    },
+  },
 ];
+
+function ensureSyncConflictsStore(db: IDBDatabase): void {
+  if (db.objectStoreNames.contains(DB_STORE_NAMES.syncConflicts)) return;
+
+  const store = db.createObjectStore(DB_STORE_NAMES.syncConflicts, {
+    keyPath: "id",
+  });
+  store.createIndex("id", "id", { unique: true });
+  store.createIndex("entityType", "entityType", { unique: false });
+  store.createIndex("entityId", "entityId", { unique: false });
+  store.createIndex("detectedAt", "detectedAt", { unique: false });
+  store.createIndex("resolvedAt", "resolvedAt", { unique: false });
+}
 
 function backfillThreshold(
   data: Partial<AreaThreshold> & { area: AreaThreshold["area"] }
@@ -244,6 +312,8 @@ function backfillThreshold(
     pressure: { min: 0, max: 0 },
     temperature: { min: 0, max: 0 },
     humidity: { min: 0, max: 0 },
+    version: 1,
+    updatedAt: formatNow(),
   };
   const base = defaults ?? fallback;
 
@@ -283,6 +353,8 @@ function backfillThreshold(
           ? data.humidity.max
           : base.humidity.max,
     },
+    version: typeof data.version === "number" ? data.version : base.version ?? 1,
+    updatedAt: data.updatedAt ?? base.updatedAt ?? formatNow(),
   };
 }
 
@@ -309,6 +381,8 @@ function backfillInspectionRecord(
     status: data.status ?? "稳定",
     planId: data.planId,
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.createdAt ?? formatNow(),
   };
 }
 
@@ -329,6 +403,8 @@ function backfillAnomalyTicket(
     sourceRecordId: data.sourceRecordId,
     processNotes: data.processNotes ?? [],
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.createdAt ?? formatNow(),
   };
 }
 
@@ -344,6 +420,8 @@ function backfillInspectionPlan(
     status: data.status ?? "未开始",
     linkedRecordIds: data.linkedRecordIds ?? [],
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.date ?? formatNow(),
   };
 }
 
@@ -406,6 +484,8 @@ function backfillAnomalyTrace(
     },
     canClose: data.canClose ?? false,
     synced: data.synced ?? false,
+    version: typeof data.version === "number" ? data.version : 1,
+    updatedAt: data.updatedAt ?? data.lastOccurredAt ?? formatNow(),
   };
 }
 

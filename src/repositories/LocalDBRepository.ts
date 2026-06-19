@@ -143,16 +143,7 @@ function openDB(): Promise<IDBDatabase> {
       }
 
       if (oldVersion < 6) {
-        if (!db.objectStoreNames.contains(DB_STORE_NAMES.syncConflicts)) {
-          const store = db.createObjectStore(DB_STORE_NAMES.syncConflicts, {
-            keyPath: "id",
-          });
-          store.createIndex("id", "id", { unique: true });
-          store.createIndex("entityType", "entityType", { unique: false });
-          store.createIndex("entityId", "entityId", { unique: false });
-          store.createIndex("detectedAt", "detectedAt", { unique: false });
-          store.createIndex("resolvedAt", "resolvedAt", { unique: false });
-        }
+        ensureSyncConflictsStore(db);
 
         const versionedStores = [
           DB_STORE_NAMES.thresholds,
@@ -186,8 +177,25 @@ function openDB(): Promise<IDBDatabase> {
           }
         }
       }
+
+      if (oldVersion < 7) {
+        ensureSyncConflictsStore(db);
+      }
     };
   });
+}
+
+function ensureSyncConflictsStore(db: IDBDatabase): void {
+  if (db.objectStoreNames.contains(DB_STORE_NAMES.syncConflicts)) return;
+
+  const store = db.createObjectStore(DB_STORE_NAMES.syncConflicts, {
+    keyPath: "id",
+  });
+  store.createIndex("id", "id", { unique: true });
+  store.createIndex("entityType", "entityType", { unique: false });
+  store.createIndex("entityId", "entityId", { unique: false });
+  store.createIndex("detectedAt", "detectedAt", { unique: false });
+  store.createIndex("resolvedAt", "resolvedAt", { unique: false });
 }
 
 async function withStore<T>(
