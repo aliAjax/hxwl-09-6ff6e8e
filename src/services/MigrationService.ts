@@ -55,25 +55,39 @@ const versionScripts: MigrationScript[] = [
         DB_STORE_NAMES.anomalyTickets,
         DB_STORE_NAMES.filters,
       ];
-      for (const storeName of stores) {
-        if (!db.objectStoreNames.contains(storeName)) {
-          const store = db.createObjectStore(storeName, {
-            keyPath: storeName === DB_STORE_NAMES.filters ? "key" : "id",
-          });
-          store.createIndex("id", "id", { unique: true });
-          if (storeName === DB_STORE_NAMES.inspectionRecords) {
-            store.createIndex("roomId", "roomId", { unique: false });
-            store.createIndex("area", "area", { unique: false });
-            store.createIndex("createdAt", "createdAt", { unique: false });
-          }
-          if (storeName === DB_STORE_NAMES.anomalyTickets) {
-            store.createIndex("roomId", "roomId", { unique: false });
-            store.createIndex("area", "area", { unique: false });
-            store.createIndex("status", "status", { unique: false });
-            store.createIndex("sourceRecordId", "sourceRecordId", { unique: false });
-          }
-        }
+
+      if (!db.objectStoreNames.contains(DB_STORE_NAMES.thresholds)) {
+        const store = db.createObjectStore(DB_STORE_NAMES.thresholds, {
+          keyPath: "area",
+        });
+        store.createIndex("area", "area", { unique: true });
       }
+
+      if (!db.objectStoreNames.contains(DB_STORE_NAMES.inspectionRecords)) {
+        const store = db.createObjectStore(DB_STORE_NAMES.inspectionRecords, {
+          keyPath: "id",
+        });
+        store.createIndex("id", "id", { unique: true });
+        store.createIndex("roomId", "roomId", { unique: false });
+        store.createIndex("area", "area", { unique: false });
+        store.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(DB_STORE_NAMES.anomalyTickets)) {
+        const store = db.createObjectStore(DB_STORE_NAMES.anomalyTickets, {
+          keyPath: "id",
+        });
+        store.createIndex("id", "id", { unique: true });
+        store.createIndex("roomId", "roomId", { unique: false });
+        store.createIndex("area", "area", { unique: false });
+        store.createIndex("status", "status", { unique: false });
+        store.createIndex("sourceRecordId", "sourceRecordId", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains(DB_STORE_NAMES.filters)) {
+        db.createObjectStore(DB_STORE_NAMES.filters, { keyPath: "key" });
+      }
+
       await logMigrationSuccess(context, 1, stores.length);
     },
   },
@@ -92,7 +106,7 @@ const versionScripts: MigrationScript[] = [
         store.createIndex("status", "status", { unique: false });
         store.createIndex("inspector", "inspector", { unique: false });
       }
-      await migrateStoreData(
+      await migrateStoreDataSerial(
         db,
         tx,
         context,
@@ -118,7 +132,7 @@ const versionScripts: MigrationScript[] = [
         store.createIndex("anomalyType", "anomalyType", { unique: false });
         store.createIndex("firstOccurredAt", "firstOccurredAt", { unique: false });
       }
-      await migrateStoreData(
+      await migrateStoreDataSerial(
         db,
         tx,
         context,
@@ -171,50 +185,48 @@ const versionScripts: MigrationScript[] = [
         store.createIndex("failedAt", "failedAt", { unique: false });
       }
 
-      await Promise.all([
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.thresholds,
-          backfillThreshold
-        ),
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.inspectionRecords,
-          backfillInspectionRecord
-        ),
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.anomalyTickets,
-          backfillAnomalyTicket
-        ),
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.inspectionPlans,
-          backfillInspectionPlan
-        ),
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.filters,
-          backfillFilterConditions
-        ),
-        migrateStoreData(
-          db,
-          tx,
-          context,
-          DB_STORE_NAMES.anomalyTraces,
-          backfillAnomalyTrace
-        ),
-      ]);
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.thresholds,
+        backfillThreshold
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.inspectionRecords,
+        backfillInspectionRecord
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.anomalyTickets,
+        backfillAnomalyTicket
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.inspectionPlans,
+        backfillInspectionPlan
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.filters,
+        backfillFilterRecord
+      );
+      await migrateStoreDataSerial(
+        db,
+        tx,
+        context,
+        DB_STORE_NAMES.anomalyTraces,
+        backfillAnomalyTrace
+      );
 
       await logMigrationSuccess(context, 5, 0);
     },
@@ -351,6 +363,14 @@ function backfillFilterConditions(
   };
 }
 
+function backfillFilterRecord(
+  data: any
+): { key: string } & FilterConditions {
+  const key = data?.key ?? "main";
+  const filters = backfillFilterConditions(data);
+  return { key, ...filters };
+}
+
 function backfillAnomalyTrace(
   data: Partial<AnomalyTrace> & { id: number }
 ): AnomalyTrace {
@@ -396,6 +416,17 @@ function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+function getRecordKey(record: any, store: IDBObjectStore): string | number {
+  const keyPath = store.keyPath;
+  if (typeof keyPath === "string") {
+    return record[keyPath] ?? record.id ?? "unknown";
+  }
+  if (Array.isArray(keyPath)) {
+    return keyPath.map((k) => record[k]).join("_");
+  }
+  return record.id ?? "unknown";
+}
+
 async function logMigrationStart(
   context: MigrationRunContext,
   version: number,
@@ -417,7 +448,9 @@ async function logMigrationSuccess(
   version: number,
   recordsProcessed: number
 ): Promise<void> {
-  const log = context.logs.find((l) => l.version === version && l.status === "running");
+  const log = context.logs.find(
+    (l) => l.version === version && l.status === "running"
+  );
   if (log) {
     log.status = "success";
     log.endTime = formatNow();
@@ -437,7 +470,9 @@ async function logMigrationFailure(
   error: unknown,
   recordsFailed: number = 0
 ): Promise<void> {
-  const log = context.logs.find((l) => l.version === version && l.status === "running");
+  const log = context.logs.find(
+    (l) => l.version === version && l.status === "running"
+  );
   if (log) {
     log.status = "failed";
     log.endTime = formatNow();
@@ -453,7 +488,31 @@ async function logMigrationFailure(
   }
 }
 
-async function migrateStoreData(
+function addFailedRecord(
+  context: MigrationRunContext,
+  storeName: string,
+  recordId: string | number,
+  record: any,
+  error: unknown
+): void {
+  try {
+    const failedRecord: MigrationFailedRecord = {
+      id: context.nextFailedRecordId++,
+      migrationVersion: context.toVersion,
+      storeName,
+      recordId,
+      originalData: JSON.parse(JSON.stringify(record)),
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+      failedAt: formatNow(),
+    };
+    context.failedRecords.push(failedRecord);
+  } catch (e) {
+    console.error("[Migration] 记录失败条目时出错:", e);
+  }
+}
+
+async function migrateStoreDataSerial(
   db: IDBDatabase,
   tx: IDBTransaction,
   context: MigrationRunContext,
@@ -465,32 +524,30 @@ async function migrateStoreData(
   }
 
   const store = tx.objectStore(storeName);
-  const records = await promisifyRequest<any[]>(store.getAll() as IDBRequest<any[]>);
+  const records = await promisifyRequest<any[]>(
+    store.getAll() as IDBRequest<any[]>
+  );
+
   let processed = 0;
   let failed = 0;
 
   for (const record of records) {
     try {
+      const recordId = getRecordKey(record, store);
       const backfilled = backfillFn(record);
-      const keyPath = store.keyPath as string;
-      const recordId = keyPath ? record[keyPath] : record.id ?? record.area ?? "main";
+
+      if (storeName === DB_STORE_NAMES.filters) {
+        if (!backfilled.key) {
+          backfilled.key = "main";
+        }
+      }
+
       await promisifyRequest(store.put(backfilled));
       processed++;
     } catch (error) {
       failed++;
-      const keyPath = store.keyPath as string;
-      const recordId = keyPath ? record[keyPath] : record.id ?? record.area ?? "main";
-      const failedRecord: MigrationFailedRecord = {
-        id: context.nextFailedRecordId++,
-        migrationVersion: context.toVersion,
-        storeName,
-        recordId,
-        originalData: JSON.parse(JSON.stringify(record)),
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorStack: error instanceof Error ? error.stack : undefined,
-        failedAt: formatNow(),
-      };
-      context.failedRecords.push(failedRecord);
+      const recordId = getRecordKey(record, store);
+      addFailedRecord(context, storeName, recordId, record, error);
       console.error(
         `[Migration] 迁移失败: store=${storeName}, id=${recordId}`,
         error
@@ -546,7 +603,9 @@ export class MigrationService {
     );
 
     if (fromVersion >= toVersion) {
-      console.log(`[Migration] 数据库已是最新版本 v${toVersion}，无需迁移`);
+      console.log(
+        `[Migration] 数据库已是最新版本 v${toVersion}，无需迁移`
+      );
       return {
         fromVersion,
         toVersion,
@@ -589,8 +648,22 @@ export class MigrationService {
               await logMigrationFailure(context, script.version, error);
             }
           }
+
+          try {
+            await this.saveMigrationLogsInTransaction(tx, context);
+          } catch (saveError) {
+            console.error("[Migration] 保存迁移日志失败:", saveError);
+          }
         } catch (error) {
           console.error("[Migration] 迁移过程发生错误:", error);
+          try {
+            await this.saveMigrationLogsInTransaction(tx, context);
+          } catch (saveError) {
+            console.error(
+              "[Migration] 保存迁移日志也失败了:",
+              saveError
+            );
+          }
           reject(error);
         }
       };
@@ -598,8 +671,6 @@ export class MigrationService {
       request.onsuccess = async () => {
         const db = request.result;
         try {
-          await this.saveMigrationResults(context, db);
-          db.close();
           this.currentDbVersion = toVersion;
 
           const successCount = context.logs.filter(
@@ -612,6 +683,14 @@ export class MigrationService {
           console.log(
             `[Migration] 迁移完成: ${successCount} 成功, ${failedCount} 失败, ${context.failedRecords.length} 条记录迁移失败`
           );
+
+          if (context.failedRecords.length > 0) {
+            console.warn(
+              `[Migration] 有 ${context.failedRecords.length} 条记录迁移失败，已保存到 migrationFailedRecords 表`
+            );
+          }
+
+          db.close();
 
           resolve({
             fromVersion,
@@ -627,10 +706,11 @@ export class MigrationService {
     });
   }
 
-  private async saveMigrationResults(
-    context: MigrationRunContext,
-    db: IDBDatabase
+  private async saveMigrationLogsInTransaction(
+    tx: IDBTransaction,
+    context: MigrationRunContext
   ): Promise<void> {
+    const db = tx.db;
     if (
       !db.objectStoreNames.contains(DB_STORE_NAMES.migrationLogs) ||
       !db.objectStoreNames.contains(DB_STORE_NAMES.migrationFailedRecords)
@@ -638,25 +718,30 @@ export class MigrationService {
       return;
     }
 
-    const tx = db.transaction(
-      [DB_STORE_NAMES.migrationLogs, DB_STORE_NAMES.migrationFailedRecords],
-      "readwrite"
-    );
-    const logStore = tx.objectStore(DB_STORE_NAMES.migrationLogs);
-    const failedStore = tx.objectStore(DB_STORE_NAMES.migrationFailedRecords);
+    try {
+      const logStore = tx.objectStore(DB_STORE_NAMES.migrationLogs);
+      const failedStore = tx.objectStore(
+        DB_STORE_NAMES.migrationFailedRecords
+      );
 
-    for (const log of context.logs) {
-      await promisifyRequest(logStore.put(log));
+      for (const log of context.logs) {
+        try {
+          await promisifyRequest(logStore.put(log));
+        } catch (e) {
+          console.error("[Migration] 保存单条迁移日志失败:", e);
+        }
+      }
+
+      for (const failed of context.failedRecords) {
+        try {
+          await promisifyRequest(failedStore.put(failed));
+        } catch (e) {
+          console.error("[Migration] 保存单条失败记录失败:", e);
+        }
+      }
+    } catch (error) {
+      console.error("[Migration] 保存迁移结果到数据库失败:", error);
     }
-
-    for (const failed of context.failedRecords) {
-      await promisifyRequest(failedStore.put(failed));
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
   }
 
   async getMigrationLogs(): Promise<MigrationLog[]> {
@@ -696,7 +781,8 @@ export class MigrationService {
 
     const backup: BackupData = {
       exportedAt: formatNow(),
-      dbVersion: this.currentDbVersion || (await this.getCurrentDbVersion()),
+      dbVersion:
+        this.currentDbVersion || (await this.getCurrentDbVersion()),
       appVersion: APP_VERSION,
       data: {
         thresholds,
@@ -740,7 +826,9 @@ export class MigrationService {
         localDBRepository.saveAllSyncQueueItems(data.syncQueue),
       ]);
 
-      console.log(`[Migration] 数据恢复成功，来自备份 v${backup.dbVersion}`);
+      console.log(
+        `[Migration] 数据恢复成功，来自备份 v${backup.dbVersion}`
+      );
       return true;
     } catch (error) {
       console.error("[Migration] 数据恢复失败:", error);
