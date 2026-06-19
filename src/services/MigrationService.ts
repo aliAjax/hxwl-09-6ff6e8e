@@ -566,18 +566,19 @@ export class MigrationService {
   private currentDbVersion: number = 0;
 
   async getCurrentDbVersion(): Promise<number> {
-    return new Promise((resolve) => {
-      const req = indexedDB.open(DB_NAME);
-      req.onsuccess = () => {
-        const db = req.result;
-        this.currentDbVersion = db.version;
-        db.close();
-        resolve(db.version);
-      };
-      req.onerror = () => {
-        resolve(0);
-      };
-    });
+    if (typeof indexedDB.databases === "function") {
+      try {
+        const databases = await indexedDB.databases();
+        const current = databases.find((db) => db.name === DB_NAME);
+        const version = current?.version ?? 0;
+        this.currentDbVersion = version;
+        return version;
+      } catch (error) {
+        console.warn("[Migration] 无法读取数据库列表:", error);
+      }
+    }
+
+    return this.currentDbVersion;
   }
 
   async needsMigration(): Promise<boolean> {
@@ -586,7 +587,6 @@ export class MigrationService {
   }
 
   async runMigrations(): Promise<MigrationContext> {
-    const fromVersion = await this.getCurrentDbVersion();
     const toVersion = DB_VERSION;
 
     const context: MigrationRunContext = {
@@ -594,25 +594,9 @@ export class MigrationService {
       failedRecords: [],
       nextLogId: 1,
       nextFailedRecordId: 1,
-      fromVersion,
+      fromVersion: 0,
       toVersion,
     };
-
-    console.log(
-      `[Migration] 开始数据迁移: v${fromVersion} -> v${toVersion}`
-    );
-
-    if (fromVersion >= toVersion) {
-      console.log(
-        `[Migration] 数据库已是最新版本 v${toVersion}，无需迁移`
-      );
-      return {
-        fromVersion,
-        toVersion,
-        logs: [],
-        failedRecords: [],
-      };
-    }
 
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, toVersion);
@@ -636,6 +620,11 @@ export class MigrationService {
 
         try {
           const oldVersion = event.oldVersion || 0;
+          context.fromVersion = oldVersion;
+          console.log(
+            `[Migration] 开始数据迁移: v${oldVersion} -> v${toVersion}`
+          );
+
           const scriptsToRun = versionScripts.filter(
             (s) => s.version > oldVersion && s.version <= toVersion
           );
@@ -671,6 +660,14 @@ export class MigrationService {
       request.onsuccess = async () => {
         const db = request.result;
         try {
+          if (context.logs.length === 0) {
+            context.fromVersion = db.version;
+            this.currentDbVersion = db.version;
+            console.log(
+              `[Migration] 数据库已是最新版本 v${db.version}，无需迁移`
+            );
+          }
+
           this.currentDbVersion = toVersion;
 
           const successCount = context.logs.filter(
@@ -693,7 +690,7 @@ export class MigrationService {
           db.close();
 
           resolve({
-            fromVersion,
+            fromVersion: context.fromVersion,
             toVersion,
             logs: context.logs,
             failedRecords: context.failedRecords,
