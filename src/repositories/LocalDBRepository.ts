@@ -16,6 +16,8 @@ import type {
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
+  MigrationFailedRecord,
+  MigrationLog,
   SyncQueueItem,
   TicketStatus,
 } from "../domain/models";
@@ -115,6 +117,27 @@ function openDB(): Promise<IDBDatabase> {
           store.createIndex("status", "status", { unique: false });
           store.createIndex("createdAt", "createdAt", { unique: false });
           store.createIndex("syncFingerprint", "syncFingerprint", { unique: false });
+        }
+      }
+
+      if (oldVersion < 5) {
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.migrationLogs)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.migrationLogs, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("version", "version", { unique: false });
+          store.createIndex("status", "status", { unique: false });
+          store.createIndex("startTime", "startTime", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(DB_STORE_NAMES.migrationFailedRecords)) {
+          const store = db.createObjectStore(DB_STORE_NAMES.migrationFailedRecords, {
+            keyPath: "id",
+          });
+          store.createIndex("id", "id", { unique: true });
+          store.createIndex("migrationVersion", "migrationVersion", { unique: false });
+          store.createIndex("storeName", "storeName", { unique: false });
+          store.createIndex("failedAt", "failedAt", { unique: false });
         }
       }
     };
@@ -673,6 +696,68 @@ export class LocalDBRepository implements AppRepository {
     await withStore(DB_STORE_NAMES.filters, "readwrite", (store) => {
       return promisifyRequest(store.put({ key: "main", ...filters }));
     });
+  }
+
+  async getMigrationLogs(): Promise<MigrationLog[]> {
+    try {
+      return await withStore(
+        DB_STORE_NAMES.migrationLogs,
+        "readonly",
+        async (store) => {
+          const results = await promisifyRequest<MigrationLog[]>(
+            store.getAll() as IDBRequest<MigrationLog[]>
+          );
+          return results.sort((a, b) => b.id - a.id);
+        }
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async saveMigrationLog(log: MigrationLog): Promise<void> {
+    await withStore(DB_STORE_NAMES.migrationLogs, "readwrite", (store) => {
+      return promisifyRequest(store.put(log));
+    });
+  }
+
+  async getMigrationFailedRecords(): Promise<MigrationFailedRecord[]> {
+    try {
+      return await withStore(
+        DB_STORE_NAMES.migrationFailedRecords,
+        "readonly",
+        async (store) => {
+          const results = await promisifyRequest<MigrationFailedRecord[]>(
+            store.getAll() as IDBRequest<MigrationFailedRecord[]>
+          );
+          return results.sort((a, b) => b.id - a.id);
+        }
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async saveMigrationFailedRecord(
+    record: MigrationFailedRecord
+  ): Promise<void> {
+    await withStore(
+      DB_STORE_NAMES.migrationFailedRecords,
+      "readwrite",
+      (store) => {
+        return promisifyRequest(store.put(record));
+      }
+    );
+  }
+
+  async clearMigrationLogs(): Promise<void> {
+    try {
+      await withStore(DB_STORE_NAMES.migrationLogs, "readwrite", (store) => {
+        return promisifyRequest(store.clear());
+      });
+    } catch {
+      // 忽略错误
+    }
   }
 
   async isEmpty(): Promise<boolean> {

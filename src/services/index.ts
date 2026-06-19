@@ -7,6 +7,7 @@ export * from "./ExportService";
 export * from "./SyncService";
 export * from "./FilterService";
 export * from "./AppService";
+export * from "./MigrationService";
 
 import { localDBRepository } from "../repositories/LocalDBRepository";
 import { apiSyncRepository } from "../repositories/ApiSyncRepository";

@@ -234,7 +234,8 @@ export const TRACE_STATUS_TAG_CLASS: Record<TraceStatus, string> = {
 };
 
 export const DB_NAME = "hxwl09_cleanroom_db";
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
+export const APP_VERSION = "1.1.0";
 
 export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> = {
   thresholds: "thresholds",
@@ -244,7 +245,11 @@ export const DB_STORE_NAMES: Record<keyof import("./models").DBSchema, string> =
   filters: "filters",
   anomalyTraces: "anomalyTraces",
   syncQueue: "syncQueue",
+  migrationLogs: "migrationLogs",
+  migrationFailedRecords: "migrationFailedRecords",
 };
+
+export const MIGRATION_LOG_KEY = "db_migration_version";
 
 export const DEFAULT_TRACES: AnomalyTrace[] = [
   {

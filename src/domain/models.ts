@@ -219,6 +219,55 @@ export interface SyncItemResult {
   errorMessage?: string;
 }
 
+export type MigrationStatus = "pending" | "running" | "success" | "failed" | "skipped";
+
+export interface MigrationLog {
+  id: number;
+  version: number;
+  name: string;
+  status: MigrationStatus;
+  startTime: string;
+  endTime?: string;
+  durationMs?: number;
+  recordsProcessed?: number;
+  recordsFailed?: number;
+  errorMessage?: string;
+  errorStack?: string;
+}
+
+export interface MigrationFailedRecord {
+  id: number;
+  migrationVersion: number;
+  storeName: string;
+  recordId: number | string;
+  originalData: unknown;
+  errorMessage: string;
+  errorStack?: string;
+  failedAt: string;
+}
+
+export interface MigrationContext {
+  fromVersion: number;
+  toVersion: number;
+  logs: MigrationLog[];
+  failedRecords: MigrationFailedRecord[];
+}
+
+export interface BackupData {
+  exportedAt: string;
+  dbVersion: number;
+  appVersion: string;
+  data: {
+    thresholds: AreaThreshold[];
+    inspectionRecords: InspectionRecord[];
+    anomalyTickets: AnomalyTicket[];
+    inspectionPlans: InspectionPlan[];
+    filters: FilterConditions;
+    anomalyTraces: AnomalyTrace[];
+    syncQueue: SyncQueueItem[];
+  };
+}
+
 export interface DBSchema {
   thresholds: AreaThreshold[];
   inspectionRecords: InspectionRecord[];
@@ -227,6 +276,8 @@ export interface DBSchema {
   filters: FilterConditions;
   anomalyTraces: AnomalyTrace[];
   syncQueue: SyncQueueItem[];
+  migrationLogs: MigrationLog[];
+  migrationFailedRecords: MigrationFailedRecord[];
 }
 
 export type DBStoreName = keyof DBSchema;

@@ -6,11 +6,13 @@ import type {
   AnomalyTrace,
   AnomalyTraceInput,
   AreaThreshold,
+  BackupData,
   CleanArea,
   FilterConditions,
   InspectionPlan,
   InspectionRecord,
   InspectionRecordInput,
+  MigrationContext,
   PlanStatus,
   ProcessingActionType,
   RecordStatusResult,
@@ -21,7 +23,7 @@ import type {
   TicketStatus,
   TraceStatus,
 } from "../domain";
-import { appService } from "../services";
+import { appService, migrationService } from "../services";
 import { localDBRepository } from "../repositories";
 import type { SyncResult } from "../repositories";
 import { formatNow } from "../domain/rules";
@@ -44,6 +46,8 @@ export interface UseAppStoreReturn {
   syncStatus: SyncStatus;
   syncQueue: SyncQueueItem[];
   isLoading: boolean;
+  isMigrating: boolean;
+  migrationContext: MigrationContext | null;
   wasInitialized: boolean;
   isOnline: boolean;
   setThresholds: (t: Updater<AreaThreshold[]>) => void;
@@ -160,7 +164,6 @@ export interface UseAppStoreReturn {
     startDate: string;
     endDate: string;
   }) => { success: boolean; message?: string };
-  resetToSampleData: () => Promise<void>;
   clearLocalData: () => Promise<void>;
   syncPending: () => Promise<SyncResult>;
   processQueue: (
@@ -172,6 +175,24 @@ export interface UseAppStoreReturn {
   removeQueueItem: (itemId: number) => Promise<void>;
   clearSyncedQueueItems: () => Promise<void>;
   refreshSyncQueue: () => Promise<void>;
+  backupData: () => Promise<BackupData>;
+  backupAndDownload: () => Promise<BackupData>;
+  restoreBackup: (backup: BackupData) => Promise<boolean>;
+  validateBackup: (backup: BackupData) => Promise<{
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }>;
+  resetToSampleData: () => Promise<void>;
+  forceResetToSampleData: () => Promise<void>;
+  getMigrationSummary: () => Promise<{
+    currentVersion: number;
+    latestVersion: number;
+    needsMigration: boolean;
+    lastMigration?: any;
+    totalFailedRecords: number;
+  }>;
+  runMigrations: () => Promise<MigrationContext>;
 }
 
 export function useAppStore(): UseAppStoreReturn {
@@ -201,6 +222,8 @@ export function useAppStore(): UseAppStoreReturn {
   });
   const [syncQueue, setSyncQueueState] = useState<SyncQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationContext, setMigrationContext] = useState<MigrationContext | null>(null);
   const [wasInitialized, setWasInitialized] = useState(false);
 
   const refreshSyncStatus = useCallback(async () => {
@@ -215,17 +238,34 @@ export function useAppStore(): UseAppStoreReturn {
   useEffect(() => {
     let mounted = true;
 
-    localDBRepository
-      .loadAll()
-      .then(async (data: any) => {
+    const initialize = async () => {
+      try {
+        setIsMigrating(true);
+
+        const needsMigration = await migrationService.needsMigration();
+        if (needsMigration) {
+          console.log("[Migration] 检测到需要数据迁移，开始执行...");
+          const migrationResult = await migrationService.runMigrations();
+          if (mounted) {
+            setMigrationContext(migrationResult);
+            if (migrationResult.failedRecords.length > 0) {
+              console.warn(
+                `[Migration] 有 ${migrationResult.failedRecords.length} 条记录迁移失败`
+              );
+            }
+          }
+        }
+
+        const data = await localDBRepository.loadAll();
         if (!mounted) return;
+
         setThresholdsState(data.thresholds);
         setInspectionRecordsState(data.inspectionRecords);
         setAnomalyTicketsState(data.anomalyTickets);
-        setAnomalyTracesState(data.anomalyTraces || []);
+        setAnomalyTracesState((data as any).anomalyTraces || []);
         setInspectionPlansState(data.inspectionPlans);
         setFiltersState(data.filters);
-        setSyncQueueState(data.syncQueue || []);
+        setSyncQueueState((data as any).syncQueue || []);
         setWasInitialized(data.wasEmpty);
 
         const migratedCount = await appService.migrateUnsyncedToQueue();
@@ -238,11 +278,15 @@ export function useAppStore(): UseAppStoreReturn {
         setSyncStatusState(ss);
         setSyncQueueState(queue);
         setIsLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to load data:", err);
+        setIsMigrating(false);
+      } catch (err) {
+        console.error("Failed to initialize:", err);
         setIsLoading(false);
-      });
+        setIsMigrating(false);
+      }
+    };
+
+    initialize();
 
     const unsubscribeOnline = appService.sync.onOnlineChange((online) => {
       if (!mounted) return;
@@ -952,9 +996,43 @@ export function useAppStore(): UseAppStoreReturn {
     [inspectionRecords, anomalyTickets, anomalyTraces, thresholds]
   );
 
+  const backupData = useCallback(async (): Promise<BackupData> => {
+    return await migrationService.backupAllData();
+  }, []);
+
+  const backupAndDownload = useCallback(async (): Promise<BackupData> => {
+    return await migrationService.backupAndDownload();
+  }, []);
+
+  const restoreBackup = useCallback(async (backup: BackupData): Promise<boolean> => {
+    const success = await migrationService.restoreBackup(backup);
+    if (success) {
+      const data = await localDBRepository.loadAll();
+      setThresholdsState(data.thresholds);
+      setInspectionRecordsState(data.inspectionRecords);
+      setAnomalyTicketsState(data.anomalyTickets);
+      setAnomalyTracesState((data as any).anomalyTraces || []);
+      setInspectionPlansState(data.inspectionPlans);
+      setFiltersState(data.filters);
+      setSyncQueueState((data as any).syncQueue || []);
+      await refreshSyncStatus();
+    }
+    return success;
+  }, [refreshSyncStatus]);
+
+  const validateBackup = useCallback(
+    async (backup: BackupData) => {
+      return await migrationService.validateBackup(backup);
+    },
+    []
+  );
+
   const resetToSampleData = useCallback(async () => {
-    await localDBRepository.clearAll();
-    await localDBRepository.seedDefaults();
+    const isEmpty = await localDBRepository.isEmpty();
+    if (!isEmpty) {
+      await migrationService.backupAndDownload();
+    }
+    await migrationService.resetToSampleData();
     const data = await localDBRepository.loadAll();
     setThresholdsState(data.thresholds);
     setInspectionRecordsState(data.inspectionRecords);
@@ -964,6 +1042,45 @@ export function useAppStore(): UseAppStoreReturn {
     setFiltersState(data.filters);
     setSyncQueueState((data as any).syncQueue || []);
     await refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const forceResetToSampleData = useCallback(async () => {
+    await migrationService.resetToSampleData();
+    const data = await localDBRepository.loadAll();
+    setThresholdsState(data.thresholds);
+    setInspectionRecordsState(data.inspectionRecords);
+    setAnomalyTicketsState(data.anomalyTickets);
+    setAnomalyTracesState((data as any).anomalyTraces || []);
+    setInspectionPlansState(data.inspectionPlans);
+    setFiltersState(data.filters);
+    setSyncQueueState((data as any).syncQueue || []);
+    await refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const getMigrationSummary = useCallback(async () => {
+    return await migrationService.getMigrationSummary();
+  }, []);
+
+  const runMigrations = useCallback(async (): Promise<MigrationContext> => {
+    setIsMigrating(true);
+    try {
+      const result = await migrationService.runMigrations();
+      setMigrationContext(result);
+
+      const data = await localDBRepository.loadAll();
+      setThresholdsState(data.thresholds);
+      setInspectionRecordsState(data.inspectionRecords);
+      setAnomalyTicketsState(data.anomalyTickets);
+      setAnomalyTracesState((data as any).anomalyTraces || []);
+      setInspectionPlansState(data.inspectionPlans);
+      setFiltersState(data.filters);
+      setSyncQueueState((data as any).syncQueue || []);
+      await refreshSyncStatus();
+
+      return result;
+    } finally {
+      setIsMigrating(false);
+    }
   }, [refreshSyncStatus]);
 
   const clearLocalData = useCallback(async () => {
@@ -1028,6 +1145,8 @@ export function useAppStore(): UseAppStoreReturn {
     syncStatus,
     syncQueue,
     isLoading,
+    isMigrating,
+    migrationContext,
     wasInitialized,
     isOnline: syncStatus.isOnline,
     setThresholds,
@@ -1079,6 +1198,7 @@ export function useAppStore(): UseAppStoreReturn {
     exportAllJson,
     exportTeamReviewReport,
     resetToSampleData,
+    forceResetToSampleData,
     clearLocalData,
     syncPending,
     processQueue,
@@ -1087,5 +1207,11 @@ export function useAppStore(): UseAppStoreReturn {
     removeQueueItem,
     clearSyncedQueueItems,
     refreshSyncQueue,
+    backupData,
+    backupAndDownload,
+    restoreBackup,
+    validateBackup,
+    getMigrationSummary,
+    runMigrations,
   };
 }

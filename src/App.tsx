@@ -70,6 +70,8 @@ function App() {
     syncStatus,
     syncQueue,
     isLoading,
+    isMigrating,
+    migrationContext,
     isOnline,
     anomalyTraces,
     setThresholds,
@@ -91,7 +93,9 @@ function App() {
     exportAllJson,
     exportTeamReviewReport,
     resetToSampleData,
+    forceResetToSampleData,
     clearLocalData,
+    backupAndDownload,
     syncPending,
     processQueue,
     retryQueueItem,
@@ -115,7 +119,9 @@ function App() {
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showAdvancedResetConfirm, setShowAdvancedResetConfirm] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
+  const [resetBackupDownloaded, setResetBackupDownloaded] = useState(false);
   const [traceEntryRecord, setTraceEntryRecord] = useState<{
     record: any;
     anomalyType: TicketAnomalyType;
@@ -244,9 +250,31 @@ function App() {
     setShowClearConfirm(false);
   };
 
+  const handleShowResetConfirm = () => {
+    setResetBackupDownloaded(false);
+    setShowAdvancedResetConfirm(true);
+  };
+
+  const handleBackupBeforeReset = async () => {
+    await backupAndDownload();
+    setResetBackupDownloaded(true);
+  };
+
   const handleConfirmReset = async () => {
-    await resetToSampleData();
-    setShowResetConfirm(false);
+    if (!resetBackupDownloaded && inspectionRecords.length > 0) {
+      const confirmed = window.confirm(
+        "您还没有备份当前数据！确定要在未备份的情况下恢复示例数据吗？\n\n建议先点击「备份当前数据」按钮进行备份。"
+      );
+      if (!confirmed) return;
+    }
+    await forceResetToSampleData();
+    setShowAdvancedResetConfirm(false);
+    setResetBackupDownloaded(false);
+  };
+
+  const handleCancelReset = () => {
+    setShowAdvancedResetConfirm(false);
+    setResetBackupDownloaded(false);
   };
 
   const handleSyncNow = async () => {
@@ -353,7 +381,7 @@ function App() {
           <div className="hero-actions">
             <button
               className="hero-action-btn secondary"
-              onClick={() => setShowResetConfirm(true)}
+              onClick={handleShowResetConfirm}
             >
               恢复示例数据
             </button>
@@ -532,6 +560,68 @@ function App() {
         onConfirm={handleConfirmReset}
         onCancel={() => setShowResetConfirm(false)}
       />
+
+      {showAdvancedResetConfirm && (
+        <div className="confirm-overlay" onClick={handleCancelReset}>
+          <div
+            className="confirm-modal reset-confirm-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="confirm-title">⚠️ 恢复示例数据</h3>
+            <div className="reset-confirm-content">
+              <p className="confirm-message">
+                此操作将 <strong>覆盖所有本地数据</strong>
+                并恢复为内置示例数据。建议先备份您的数据！
+              </p>
+
+              <div className="data-stats-panel">
+                <h4>当前数据统计</h4>
+                <div className="data-stats-grid">
+                  <div className="data-stat-item">
+                    <span className="data-stat-value">{inspectionRecords.length}</span>
+                    <span className="data-stat-label">巡检记录</span>
+                  </div>
+                  <div className="data-stat-item">
+                    <span className="data-stat-value">{anomalyTickets.length}</span>
+                    <span className="data-stat-label">异常工单</span>
+                  </div>
+                  <div className="data-stat-item">
+                    <span className="data-stat-value">{anomalyTraces.length}</span>
+                    <span className="data-stat-label">异常追踪</span>
+                  </div>
+                  <div className="data-stat-item">
+                    <span className="data-stat-value">{inspectionPlans.length}</span>
+                    <span className="data-stat-label">巡检计划</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="reset-actions-section">
+                <button
+                  className={`backup-btn ${resetBackupDownloaded ? "backup-btn-success" : ""}`}
+                  onClick={handleBackupBeforeReset}
+                >
+                  {resetBackupDownloaded ? "✅ 备份已下载" : "💾 备份当前数据 (JSON)"}
+                </button>
+                <p className="backup-hint">
+                  {resetBackupDownloaded
+                    ? "备份已成功下载，您可以安全地恢复示例数据了。"
+                    : "点击上方按钮下载当前所有数据的备份文件，以防数据丢失。"}
+                </p>
+              </div>
+            </div>
+            <div className="confirm-actions">
+              <button onClick={handleCancelReset}>取消</button>
+              <button
+                className={resetBackupDownloaded ? "primary-action" : "danger"}
+                onClick={handleConfirmReset}
+              >
+                {resetBackupDownloaded ? "确认恢复示例数据" : "跳过备份，直接恢复"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
