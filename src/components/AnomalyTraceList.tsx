@@ -87,22 +87,14 @@ export default function AnomalyTraceList({
   useEffect(() => {
     if (!externalSelectedRecord) return;
     const { record, anomalyType } = externalSelectedRecord;
-    const existing = getTracesForRoom(record.roomId).find(
-      (t) => t.anomalyType === anomalyType
-    );
-    if (existing) {
-      setPendingTrace(null);
-      setSelectedTraceId(existing.id);
-    } else {
-      createOrUpdateTraceFromRecord(record, anomalyType).then((newTrace) => {
-        if (newTrace) {
-          setPendingTrace(newTrace);
-          setSelectedTraceId(newTrace.id);
-        }
-      });
-    }
+    createOrUpdateTraceFromRecord(record, anomalyType).then((trace) => {
+      if (trace) {
+        setPendingTrace(trace);
+        setSelectedTraceId(trace.id);
+      }
+    });
     onClearExternalRecord?.();
-  }, [externalSelectedRecord]);
+  }, [externalSelectedRecord, createOrUpdateTraceFromRecord, onClearExternalRecord]);
 
   const selectedTrace = useMemo(() => {
     if (pendingTrace) return pendingTrace;
@@ -204,28 +196,29 @@ export default function AnomalyTraceList({
               if (anomalies.pressure) types.push("压差异常");
               if (anomalies.temp || anomalies.humidity) types.push("温湿度偏移");
               const existingTraces = getTracesForRoom(record.roomId);
+              const primaryType = types[0];
+              const existingMatchingTrace = existingTraces.find(
+                (t) => t.anomalyType === primaryType
+              );
               return (
                 <div
                   key={record.id}
                   className="trace-entry-card"
                   onClick={async () => {
-                    if (existingTraces.length > 0) {
-                      setPendingTrace(null);
-                      setSelectedTraceId(existingTraces[0].id);
-                    } else {
-                      const primaryType = types[0];
-                      try {
-                        const newTrace =
-                          await createOrUpdateTraceFromRecord(
-                            record,
-                            primaryType
-                          );
-                        if (newTrace) {
-                          setPendingTrace(newTrace);
-                          setSelectedTraceId(newTrace.id);
-                        }
-                      } catch (e) {
-                        console.error("创建追踪失败:", e);
+                    try {
+                      const trace = await createOrUpdateTraceFromRecord(
+                        record,
+                        primaryType
+                      );
+                      if (trace) {
+                        setPendingTrace(trace);
+                        setSelectedTraceId(trace.id);
+                      }
+                    } catch (e) {
+                      console.error("创建或更新追踪失败:", e);
+                      if (existingMatchingTrace) {
+                        setPendingTrace(null);
+                        setSelectedTraceId(existingMatchingTrace.id);
                       }
                     }
                   }}

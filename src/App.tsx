@@ -168,7 +168,7 @@ function App() {
       const hasExistingTicket = hasTicketForRecord(record.id, anomalyType);
       if (!hasExistingTicket) {
         try {
-          const { ticket } = await createTicketFromRecord(
+          await createTicketFromRecord(
             {
               roomId: record.roomId,
               area: record.area,
@@ -181,7 +181,6 @@ function App() {
             },
             anomalyType
           );
-          await createOrUpdateTraceFromRecord(record, anomalyType, ticket.id);
         } catch (e) {
           console.error("自动创建工单或追踪失败:", e);
         }
