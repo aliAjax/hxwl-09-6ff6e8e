@@ -89,6 +89,7 @@ function App() {
     exportTicketsCsv,
     exportPlansCsv,
     exportAllJson,
+    exportTeamReviewReport,
     resetToSampleData,
     clearLocalData,
     syncPending,
@@ -508,6 +509,7 @@ function App() {
         onExportTickets={exportTicketsCsv}
         onExportPlans={exportPlansCsv}
         onExportAll={exportAllJson}
+        onExportTeamReview={exportTeamReviewReport}
       />
 
       <ConfirmDialog

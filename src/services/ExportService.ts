@@ -1,4 +1,12 @@
-import type { AnomalyTicket, InspectionPlan, InspectionRecord } from "../domain/models";
+import type {
+  AnomalyTicket,
+  InspectionPlan,
+  InspectionRecord,
+  AnomalyTrace,
+  AreaThreshold,
+  CleanArea,
+  RootCauseCategory,
+} from "../domain/models";
 import { buildExportCsv, escapeCsvField, formatNow, generateFileName } from "../domain/rules";
 
 export type ExportFormat = "csv" | "json";
@@ -125,6 +133,132 @@ export class ExportService {
       .slice(0, 10)
       .replace(/-/g, "")}.json`;
     this.downloadJson(data, fileName);
+    return { success: true };
+  }
+
+  exportTeamReviewReport(
+    records: InspectionRecord[],
+    tickets: AnomalyTicket[],
+    traces: AnomalyTrace[],
+    thresholds: AreaThreshold[],
+    params: {
+      area: CleanArea | "全部";
+      startDate: string;
+      endDate: string;
+    }
+  ): { success: boolean; message?: string } {
+    const { area, startDate, endDate } = params;
+
+    const inTimeRange = (ts: string): boolean => {
+      if (!ts) return false;
+      const t = ts.slice(0, 10);
+      if (startDate && t < startDate) return false;
+      if (endDate && t > endDate) return false;
+      return true;
+    };
+
+    const filteredRecords = records.filter((r) => {
+      const areaOk = area === "全部" || r.area === area;
+      return areaOk && inTimeRange(r.createdAt);
+    });
+
+    const filteredTickets = tickets.filter((t) => {
+      const areaOk = area === "全部" || t.area === area;
+      return areaOk && inTimeRange(t.createdAt);
+    });
+
+    const filteredTraces = traces.filter((t) => {
+      const areaOk = area === "全部" || t.area === area;
+      return areaOk && inTimeRange(t.firstOccurredAt);
+    });
+
+    const areaThresholds =
+      area === "全部" ? thresholds : thresholds.filter((t) => t.area === area);
+
+    const rootCauseAnalysis = filteredTraces
+      .filter((t) => t.rootCause)
+      .map((t) => ({
+        traceId: t.id,
+        roomId: t.roomId,
+        area: t.area,
+        anomalyType: t.anomalyType,
+        rootCause: t.rootCause as RootCauseCategory,
+        rootCauseDetail: t.rootCauseDetail,
+        confidence: t.confidence,
+        status: t.status,
+      }));
+
+    const unclosedRisks = [
+      ...filteredTickets
+        .filter((t) => t.status !== "已关闭")
+        .map((t) => ({
+          type: "ticket" as const,
+          id: t.id,
+          roomId: t.roomId,
+          area: t.area,
+          anomalyType: t.anomalyType,
+          status: t.status,
+          assignee: t.assignee,
+          createdAt: t.createdAt,
+          remark: t.remark,
+        })),
+      ...filteredTraces
+        .filter((t) => t.status !== "已恢复")
+        .map((t) => ({
+          type: "trace" as const,
+          id: t.id,
+          roomId: t.roomId,
+          area: t.area,
+          anomalyType: t.anomalyType,
+          status: t.status,
+          firstOccurredAt: t.firstOccurredAt,
+          lastOccurredAt: t.lastOccurredAt,
+          anomalyCount: t.anomalyCount,
+          rootCause: t.rootCause,
+        })),
+    ];
+
+    const totalRecords = filteredRecords.length;
+    const abnormalRecords = filteredRecords.filter((r) => r.status !== "稳定").length;
+    const totalTickets = filteredTickets.length;
+    const closedTickets = filteredTickets.filter((t) => t.status === "已关闭").length;
+    const totalTraces = filteredTraces.length;
+    const recoveredTraces = filteredTraces.filter((t) => t.status === "已恢复").length;
+
+    const report = {
+      reportType: "班组复盘综合报告",
+      exportedAt: formatNow(),
+      reportScope: {
+        area,
+        startDate,
+        endDate,
+      },
+      summary: {
+        totalRecords,
+        abnormalRecords,
+        abnormalRate: totalRecords > 0 ? Number(((abnormalRecords / totalRecords) * 100).toFixed(2)) : 0,
+        totalTickets,
+        closedTickets,
+        ticketClosureRate: totalTickets > 0 ? Number(((closedTickets / totalTickets) * 100).toFixed(2)) : 0,
+        totalTraces,
+        recoveredTraces,
+        traceRecoveryRate: totalTraces > 0 ? Number(((recoveredTraces / totalTraces) * 100).toFixed(2)) : 0,
+        unclosedRiskCount: unclosedRisks.length,
+      },
+      inspectionRecords: filteredRecords,
+      anomalyTickets: filteredTickets,
+      anomalyTraces: filteredTraces,
+      rootCauseAnalysis,
+      unclosedRisks,
+      thresholdSnapshot: areaThresholds,
+    };
+
+    const areaPart = area === "全部" ? "全部区域" : area.replace(/\s/g, "");
+    const datePart = startDate || endDate
+      ? `${startDate ? startDate.replace(/-/g, "") : "不限"}_${endDate ? endDate.replace(/-/g, "") : "不限"}`
+      : "全部时间";
+    const fileName = `班组复盘综合报告_${areaPart}_${datePart}.json`;
+    this.downloadJson(report, fileName);
     return { success: true };
   }
 

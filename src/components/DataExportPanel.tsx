@@ -16,6 +16,11 @@ interface DataExportPanelProps {
     message?: string;
   };
   onExportAll: () => { success: boolean; message?: string };
+  onExportTeamReview: (params: {
+    area: CleanArea | "全部";
+    startDate: string;
+    endDate: string;
+  }) => { success: boolean; message?: string };
 }
 
 export default function DataExportPanel({
@@ -23,31 +28,53 @@ export default function DataExportPanel({
   onExportTickets,
   onExportPlans,
   onExportAll,
+  onExportTeamReview,
 }: DataExportPanelProps) {
   const [areaFilter, setAreaFilter] = useState<CleanArea | "全部">("全部");
+  const [reportArea, setReportArea] = useState<CleanArea | "全部">("全部");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [lastMessage, setLastMessage] = useState<string>("");
+
+  const showMessage = (msg: string, duration = 2500) => {
+    setLastMessage(msg);
+    setTimeout(() => setLastMessage(""), duration);
+  };
 
   const handleExport = (
     fn: (area: CleanArea | "全部") => { success: boolean; message?: string }
   ) => {
     const result = fn(areaFilter);
     if (!result.success && result.message) {
-      setLastMessage(result.message);
-      setTimeout(() => setLastMessage(""), 3000);
+      showMessage(result.message, 3500);
     } else {
-      setLastMessage("导出成功");
-      setTimeout(() => setLastMessage(""), 2000);
+      showMessage("导出成功");
     }
   };
 
   const handleExportAll = () => {
     const result = onExportAll();
     if (!result.success && result.message) {
-      setLastMessage(result.message);
-      setTimeout(() => setLastMessage(""), 3000);
+      showMessage(result.message, 3500);
     } else {
-      setLastMessage("全量数据导出成功");
-      setTimeout(() => setLastMessage(""), 2000);
+      showMessage("全量数据导出成功");
+    }
+  };
+
+  const handleExportTeamReview = () => {
+    if (startDate && endDate && startDate > endDate) {
+      showMessage("开始日期不能晚于结束日期", 3500);
+      return;
+    }
+    const result = onExportTeamReview({
+      area: reportArea,
+      startDate,
+      endDate,
+    });
+    if (!result.success && result.message) {
+      showMessage(result.message, 3500);
+    } else {
+      showMessage("班组复盘综合报告导出成功");
     }
   };
 
@@ -61,51 +88,118 @@ export default function DataExportPanel({
         <div className="export-hint">支持 CSV 和 JSON 格式，离线可用</div>
       </div>
 
-      <div className="export-controls">
-        <div className="export-filter-group">
-          <span className="export-filter-label">筛选区域</span>
-          <div className="chips muted">
-            <button
-              className={areaFilter === "全部" ? "chip-active" : ""}
-              onClick={() => setAreaFilter("全部")}
-            >
-              全部
-            </button>
-            {CLEAN_AREAS.map((area) => (
+      <div className="export-section">
+        <h3 className="export-subtitle">单项数据导出 (CSV)</h3>
+        <div className="export-controls">
+          <div className="export-filter-group">
+            <span className="export-filter-label">筛选区域</span>
+            <div className="chips muted">
               <button
-                key={area}
-                className={areaFilter === area ? "chip-active" : ""}
-                onClick={() => setAreaFilter(area)}
+                className={areaFilter === "全部" ? "chip-active" : ""}
+                onClick={() => setAreaFilter("全部")}
               >
-                {area}
+                全部
               </button>
-            ))}
+              {CLEAN_AREAS.map((area) => (
+                <button
+                  key={area}
+                  className={areaFilter === area ? "chip-active" : ""}
+                  onClick={() => setAreaFilter(area)}
+                >
+                  {area}
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
+
+        <div className="export-buttons">
+          <button
+            className="export-btn"
+            onClick={() => handleExport(onExportRecords)}
+          >
+            📋 导出巡检记录 (CSV)
+          </button>
+          <button
+            className="export-btn"
+            onClick={() => handleExport(onExportTickets)}
+          >
+            🎫 导出异常工单 (CSV)
+          </button>
+          <button
+            className="export-btn"
+            onClick={() => handleExport(onExportPlans)}
+          >
+            📅 导出巡检计划 (CSV)
+          </button>
+          <button className="export-btn" onClick={handleExportAll}>
+            💾 导出全量数据 (JSON)
+          </button>
         </div>
       </div>
 
-      <div className="export-buttons">
-        <button
-          className="export-btn"
-          onClick={() => handleExport(onExportRecords)}
-        >
-          📋 导出巡检记录 (CSV)
-        </button>
-        <button
-          className="export-btn"
-          onClick={() => handleExport(onExportTickets)}
-        >
-          🎫 导出异常工单 (CSV)
-        </button>
-        <button
-          className="export-btn"
-          onClick={() => handleExport(onExportPlans)}
-        >
-          📅 导出巡检计划 (CSV)
-        </button>
-        <button className="export-btn primary-action" onClick={handleExportAll}>
-          💾 导出全量数据 (JSON)
-        </button>
+      <div className="export-section export-section-team">
+        <h3 className="export-subtitle">
+          📊 班组复盘综合报告 (JSON)
+          <span className="export-subtitle-hint">
+            包含巡检记录、异常工单、异常追踪、根因判断、未关闭风险和阈值快照
+          </span>
+        </h3>
+        <div className="export-controls">
+          <div className="export-filter-group">
+            <span className="export-filter-label">洁净等级</span>
+            <div className="chips muted">
+              <button
+                className={reportArea === "全部" ? "chip-active" : ""}
+                onClick={() => setReportArea("全部")}
+              >
+                全部
+              </button>
+              {CLEAN_AREAS.map((area) => (
+                <button
+                  key={area}
+                  className={reportArea === area ? "chip-active" : ""}
+                  onClick={() => setReportArea(area)}
+                >
+                  {area}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="export-filter-group">
+            <span className="export-filter-label">时间范围</span>
+            <div className="date-range-group">
+              <label className="date-input-label">
+                开始：
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="date-input"
+                />
+              </label>
+              <label className="date-input-label">
+                结束：
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="date-input"
+                />
+              </label>
+              <span className="date-range-hint">留空表示不限</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="export-buttons">
+          <button
+            className="export-btn primary-action team-report-btn"
+            onClick={handleExportTeamReview}
+          >
+            📤 导出班组复盘综合报告
+          </button>
+        </div>
       </div>
 
       {lastMessage && <p className="export-message">{lastMessage}</p>}

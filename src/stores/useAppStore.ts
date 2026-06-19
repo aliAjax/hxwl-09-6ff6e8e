@@ -155,6 +155,11 @@ export interface UseAppStoreReturn {
   exportPlansCsv: (
     areaFilter: CleanArea | "全部") => { success: boolean; message?: string };
   exportAllJson: () => { success: boolean; message?: string };
+  exportTeamReviewReport: (params: {
+    area: CleanArea | "全部";
+    startDate: string;
+    endDate: string;
+  }) => { success: boolean; message?: string };
   resetToSampleData: () => Promise<void>;
   clearLocalData: () => Promise<void>;
   syncPending: () => Promise<SyncResult>;
@@ -934,6 +939,19 @@ export function useAppStore(): UseAppStoreReturn {
     );
   }, [inspectionRecords, anomalyTickets, inspectionPlans]);
 
+  const exportTeamReviewReport = useCallback(
+    (params: { area: CleanArea | "全部"; startDate: string; endDate: string }) => {
+      return appService.export.exportTeamReviewReport(
+        inspectionRecords,
+        anomalyTickets,
+        anomalyTraces,
+        thresholds,
+        params
+      );
+    },
+    [inspectionRecords, anomalyTickets, anomalyTraces, thresholds]
+  );
+
   const resetToSampleData = useCallback(async () => {
     await localDBRepository.clearAll();
     await localDBRepository.seedDefaults();
@@ -1059,6 +1077,7 @@ export function useAppStore(): UseAppStoreReturn {
     exportTicketsCsv,
     exportPlansCsv,
     exportAllJson,
+    exportTeamReviewReport,
     resetToSampleData,
     clearLocalData,
     syncPending,

@@ -3532,6 +3532,92 @@ input {
   font-weight: 500;
 }
 
+.export-section {
+  margin-bottom: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.export-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.export-section-team {
+  background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%);
+  border: 1px solid #ccfbf1;
+  border-radius: 10px;
+  padding: 18px;
+  margin-top: 8px;
+}
+
+.export-subtitle {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.export-subtitle-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.date-range-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.date-input-label {
+  font-size: 13px;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-input {
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.date-input:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.date-range-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.team-report-btn {
+  min-height: 46px;
+  font-size: 15px;
+  background: linear-gradient(135deg, #0891b2, #0d9488) !important;
+  border-color: #0891b2 !important;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.25);
+}
+
+.team-report-btn:hover {
+  background: linear-gradient(135deg, #0e7490, #0f766e) !important;
+  box-shadow: 0 4px 12px rgba(8, 145, 178, 0.35);
+}
+
 .sidebar-stats {
   display: grid;
   gap: 12px;
