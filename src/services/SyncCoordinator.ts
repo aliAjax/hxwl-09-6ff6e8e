@@ -593,9 +593,20 @@ export class SyncCoordinator {
     entity: SyncableEntity,
     action: SyncAction = "update"
   ): Promise<SyncQueueItem | null> {
+    const versioned = this.bumpVersion({ ...entity, synced: false });
+
+    const entityId = entityType === "threshold" 
+      ? (versioned as AreaThreshold).area 
+      : (versioned as any).id;
+    await this.updateEntityInList(
+      entityType,
+      entityId,
+      () => versioned
+    );
+
     const item = await this.syncService.enqueueEntity(
       entityType,
-      entity,
+      versioned,
       action
     );
     if (item) {

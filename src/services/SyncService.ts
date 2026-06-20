@@ -168,13 +168,11 @@ export class SyncService {
         : ((entity as any).id as number);
     if (!entityId && entityId !== 0) return null;
 
-    const versioned = this.bumpVersion(entity);
-
     const fingerprint = this.buildFingerprint(
       entityType,
       entityId,
       action,
-      versioned
+      entity
     );
     const existingQueue = await this.repo.getSyncQueue();
 
@@ -204,7 +202,7 @@ export class SyncService {
         action,
         status: "pending" as SyncItemStatus,
         errorMessage: undefined,
-        dataSnapshot: versioned as any,
+        dataSnapshot: entity as any,
         syncFingerprint: fingerprint,
         lastAttemptAt: undefined,
       };
@@ -219,7 +217,7 @@ export class SyncService {
         status: "pending",
         retryCount: 0,
         createdAt: formatNow(),
-        dataSnapshot: versioned as any,
+        dataSnapshot: entity as any,
         syncFingerprint: fingerprint,
       };
       await this.repo.saveSyncQueueItem(targetItem);
@@ -247,27 +245,50 @@ export class SyncService {
     );
 
     let created = 0;
-    const tasks: Array<{ type: SyncEntityType; list: SyncableEntity[] }> = [
+    const tasks: Array<{
+      type: SyncEntityType;
+      list: SyncableEntity[];
+      saveAll: (items: any[]) => Promise<void>;
+    }> = [
       {
         type: "inspectionRecord",
         list: records.filter((r) => !r.synced),
+        saveAll: this.repo.saveAllInspectionRecords.bind(this.repo),
       },
       {
         type: "anomalyTicket",
         list: tickets.filter((t) => !t.synced),
+        saveAll: this.repo.saveAllAnomalyTickets.bind(this.repo),
       },
-      { type: "inspectionPlan", list: plans.filter((p) => !p.synced) },
+      {
+        type: "inspectionPlan",
+        list: plans.filter((p) => !p.synced),
+        saveAll: this.repo.saveAllInspectionPlans.bind(this.repo),
+      },
       {
         type: "anomalyTrace",
         list: traces.filter((t: any) => !t.synced),
+        saveAll: this.repo.saveAllAnomalyTraces?.bind(this.repo) ?? (async () => {}),
       },
     ];
 
-    for (const { type, list } of tasks) {
+    for (const { type, list, saveAll } of tasks) {
+      const allItems = type === "inspectionRecord" ? records :
+                       type === "anomalyTicket" ? tickets :
+                       type === "inspectionPlan" ? plans : traces;
+      
       for (const entity of list) {
         const key = `${type}:${(entity as any).id}`;
         if (existingFingerprints.has(key)) continue;
-        const result = await this.enqueueEntity(type, entity, "create");
+        
+        const versioned = this.bumpVersion(entity);
+        
+        const updatedAll = (allItems as any[]).map((item: any) =>
+          item.id === (entity as any).id ? versioned : item
+        );
+        await saveAll(updatedAll);
+        
+        const result = await this.enqueueEntity(type, versioned, "create");
         if (result) created++;
       }
     }
