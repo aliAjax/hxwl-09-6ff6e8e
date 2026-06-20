@@ -273,9 +273,11 @@ export class SyncService {
     ];
 
     for (const { type, list, saveAll } of tasks) {
-      const allItems = type === "inspectionRecord" ? records :
-                       type === "anomalyTicket" ? tickets :
-                       type === "inspectionPlan" ? plans : traces;
+      let currentAllItems = [...(
+        type === "inspectionRecord" ? records :
+        type === "anomalyTicket" ? tickets :
+        type === "inspectionPlan" ? plans : traces
+      ) as any[]];
       
       for (const entity of list) {
         const key = `${type}:${(entity as any).id}`;
@@ -283,14 +285,15 @@ export class SyncService {
         
         const versioned = this.bumpVersion(entity);
         
-        const updatedAll = (allItems as any[]).map((item: any) =>
+        currentAllItems = currentAllItems.map((item: any) =>
           item.id === (entity as any).id ? versioned : item
         );
-        await saveAll(updatedAll);
         
         const result = await this.enqueueEntity(type, versioned, "create");
         if (result) created++;
       }
+      
+      await saveAll(currentAllItems);
     }
 
     return created;
@@ -638,6 +641,7 @@ export class SyncService {
             ),
           };
           await this.repo.updateSyncQueueItem(reQueued);
+          await this.replaceEntityLocal(conflict.entityType, bumped);
         }
       } else if (resolution === "useRemote") {
         await this.replaceEntityLocal(
