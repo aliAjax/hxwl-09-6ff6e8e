@@ -96,11 +96,7 @@ export class SyncService {
   bumpVersion<T extends { version?: number; updatedAt?: string }>(
     entity: T
   ): T {
-    return {
-      ...entity,
-      version: (entity.version ?? 0) + 1,
-      updatedAt: formatNow(),
-    };
+    return bumpSyncVersion(entity);
   }
 
   private buildFingerprint(
@@ -109,52 +105,7 @@ export class SyncService {
     action: SyncAction,
     snapshot: SyncableEntity
   ): string {
-    const keyParts: string[] = [entityType, String(entityId), action];
-    const snap = snapshot as any;
-
-    if (entityType === "inspectionRecord") {
-      keyParts.push(
-        String(snap.roomId ?? ""),
-        String(snap.createdAt ?? ""),
-        String(snap.particle05um ?? ""),
-        String(snap.status ?? ""),
-        String(snap.version ?? "")
-      );
-    } else if (entityType === "anomalyTicket") {
-      keyParts.push(
-        String(snap.roomId ?? ""),
-        String(snap.createdAt ?? ""),
-        String(snap.anomalyType ?? ""),
-        String(snap.status ?? ""),
-        String(snap.version ?? "")
-      );
-    } else if (entityType === "inspectionPlan") {
-      keyParts.push(
-        String(snap.date ?? ""),
-        String(snap.area ?? ""),
-        String(snap.inspector ?? ""),
-        String(snap.status ?? ""),
-        String(snap.version ?? ""),
-        Array.isArray(snap.linkedRecordIds)
-          ? snap.linkedRecordIds.sort((a: number, b: number) => a - b).join(",")
-          : ""
-      );
-    } else if (entityType === "anomalyTrace") {
-      keyParts.push(
-        String(snap.roomId ?? ""),
-        String(snap.anomalyType ?? ""),
-        String(snap.status ?? ""),
-        String(snap.lastOccurredAt ?? ""),
-        String(snap.version ?? "")
-      );
-    } else if (entityType === "threshold") {
-      keyParts.push(
-        String(snap.area ?? ""),
-        String(snap.version ?? "")
-      );
-    }
-
-    return keyParts.join("|");
+    return buildSyncFingerprint(entityType, entityId, action, snapshot);
   }
 
   async enqueueEntity(
@@ -800,4 +751,68 @@ export class SyncService {
       syncedIds.has(item.id) ? { ...item, synced: true } : item
     );
   }
+}
+
+export function bumpSyncVersion<T extends { version?: number; updatedAt?: string }>(
+  entity: T
+): T {
+  return {
+    ...entity,
+    version: (entity.version ?? 0) + 1,
+    updatedAt: formatNow(),
+  };
+}
+
+export function buildSyncFingerprint(
+  entityType: SyncEntityType,
+  entityId: number | string,
+  action: SyncAction,
+  snapshot: unknown
+): string {
+  const keyParts: string[] = [entityType, String(entityId), action];
+  const snap = snapshot as any;
+
+  if (entityType === "inspectionRecord") {
+    keyParts.push(
+      String(snap.roomId ?? ""),
+      String(snap.createdAt ?? ""),
+      String(snap.particle05um ?? ""),
+      String(snap.status ?? ""),
+      String(snap.version ?? "")
+    );
+  } else if (entityType === "anomalyTicket") {
+    keyParts.push(
+      String(snap.roomId ?? ""),
+      String(snap.createdAt ?? ""),
+      String(snap.anomalyType ?? ""),
+      String(snap.status ?? ""),
+      String(snap.version ?? "")
+    );
+  } else if (entityType === "inspectionPlan") {
+    keyParts.push(
+      String(snap.date ?? ""),
+      String(snap.area ?? ""),
+      String(snap.inspector ?? ""),
+      String(snap.status ?? ""),
+      String(snap.version ?? ""),
+      Array.isArray(snap.linkedRecordIds)
+        ? snap.linkedRecordIds.sort((a: number, b: number) => a - b).join(",")
+        : ""
+    );
+  } else if (entityType === "anomalyTrace") {
+    keyParts.push(
+      String(snap.roomId ?? ""),
+      String(snap.anomalyType ?? ""),
+      String(snap.status ?? ""),
+      String(snap.lastOccurredAt ?? ""),
+      String(snap.version ?? "")
+    );
+  } else if (entityType === "threshold") {
+    keyParts.push(
+      String(snap.area ?? ""),
+      String(snap.version ?? "")
+    );
+  }
+
+  return keyParts.join("|");
 }

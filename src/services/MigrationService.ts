@@ -1001,3 +1001,13 @@ export class MigrationService {
 }
 
 export const migrationService = new MigrationService();
+
+export {
+  backfillThreshold,
+  backfillInspectionRecord,
+  backfillAnomalyTicket,
+  backfillInspectionPlan,
+  backfillAnomalyTrace,
+  backfillFilterConditions,
+  backfillFilterRecord,
+};
